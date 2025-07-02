@@ -1,6 +1,6 @@
-[build-system]
-requires = ["uv"]
-build-backend = "uv.uvbuild"
+# For development, use uv to manage dependencies
+# For editable installs, use: uv pip install -e .
+# Standard installation: uv pip install .
 
 [project]
 name = "timeless-py"
@@ -24,12 +24,12 @@ classifiers = [
 ]
 
 dependencies = [
-    "typer[all]",
+    "typer",
     "keyring",
     "keyrings.alt",
     "orjson",
     "pycron",
-    "python-launchd",
+    "launchd",
     "pync",
 ]
 
