@@ -34,33 +34,27 @@ jobs:
     
     - name: Lint with ruff
       run: |
-        . .venv/bin/activate
-        ruff check --fix .
+        .venv/bin/ruff check --fix .
         
     - name: Check formatting with black
       run: |
-        . .venv/bin/activate
-        black --check .
+        .venv/bin/black --check .
         
     - name: Check imports with isort
       run: |
-        . .venv/bin/activate
-        isort --check .
+        .venv/bin/isort --check .
         
     - name: Type check with mypy
       run: |
-        . .venv/bin/activate
-        mypy --strict .
+        .venv/bin/mypy --strict .
         
     - name: Test with pytest
       run: |
-        . .venv/bin/activate
-        pytest --cov=timeless_py
+        .venv/bin/pytest --cov=timeless_py
         
     - name: Check coverage threshold
       run: |
-        . .venv/bin/activate
-        python -c "import sys, xml.etree.ElementTree as ET; \
+        .venv/bin/python -c "import sys, xml.etree.ElementTree as ET; \
         coverage = float(ET.parse('coverage.xml').getroot().attrib['line-rate']) * 100; \
         sys.exit(0 if coverage >= 90 else 1)" || \
         (echo "::error::Coverage below threshold: ${coverage}%"; exit 1)
