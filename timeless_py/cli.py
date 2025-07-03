@@ -33,9 +33,13 @@ app = typer.Typer(
 
 @app.callback()
 def callback(
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose output."),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Enable verbose output."
+    ),
     json: bool = typer.Option(False, "--json", help="Output logs in JSON format."),
-    version: bool = typer.Option(False, "--version", help="Show the application version and exit."),
+    version: bool = typer.Option(
+        False, "--version", help="Show the application version and exit."
+    ),
 ) -> None:
     """
     Timeless-Py: Snapshot what matters, remember how to rebuild the rest.
@@ -102,7 +106,9 @@ def mount() -> None:
 def restore(
     snapshot: str = typer.Argument(..., help="Snapshot ID or timestamp to restore from."),
     path: str = typer.Argument(..., help="Path to restore from snapshot."),
-    target: Optional[str] = typer.Option(None, "--target", "-t", help="Target path for restoration (default: current directory).")
+    target: Optional[str] = typer.Option(
+        None, "--target", "-t", help="Target path for restoration (default: current directory)."
+    )
 ) -> None:
     """
     Restore a file or directory from a snapshot.
