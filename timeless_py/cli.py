@@ -1,7 +1,8 @@
 """
 Command-line interface for Timeless-Py.
 
-This module provides the command-line entry point for the Timeless-Py backup application.
+This module provides the command-line entry point for the Timeless-Py backup
+application.
 """
 
 import logging
@@ -20,7 +21,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(message)s",
     datefmt="[%X]",
-    handlers=[RichHandler(console=console, rich_tracebacks=True)]
+    handlers=[RichHandler(console=console, rich_tracebacks=True)],
 )
 logger = logging.getLogger("timeless")
 
@@ -33,9 +34,13 @@ app = typer.Typer(
 
 @app.callback()
 def callback(
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose output."),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Enable verbose output."
+    ),
     json: bool = typer.Option(False, "--json", help="Output logs in JSON format."),
-    version: bool = typer.Option(False, "--version", help="Show the application version and exit."),
+    version: bool = typer.Option(
+        False, "--version", help="Show the application version and exit."
+    ),
 ) -> None:
     """
     Timeless-Py: Snapshot what matters, remember how to rebuild the rest.
@@ -43,12 +48,12 @@ def callback(
     if version:
         console.print(f"Timeless-Py version: {__version__}")
         raise typer.Exit()
-    
+
     # Configure logging level based on verbosity
     if verbose:
         logger.setLevel(logging.DEBUG)
         logger.debug("Verbose logging enabled")
-    
+
     # Configure JSON logging if requested
     if json:
         # Reconfigure logging for JSON output
@@ -56,7 +61,8 @@ def callback(
             logging.root.removeHandler(handler)
         logging.basicConfig(
             level=logging.INFO if not verbose else logging.DEBUG,
-            format='{"timestamp": "%(asctime)s", "level": "%(levelname)s", "message": "%(message)s"}',
+            format='{"timestamp": "%(asctime)s", "level": "%(levelname)s", '
+            '"message": "%(message)s"}',
             datefmt="%Y-%m-%dT%H:%M:%S",
             stream=sys.stdout,
         )
@@ -65,12 +71,15 @@ def callback(
 
 @app.command()
 def init(
-    wizard: bool = typer.Option(True, "--wizard/--no-wizard", help="Run interactive configuration wizard.")
+    wizard: bool = typer.Option(
+        True, "--wizard/--no-wizard", help="Run interactive configuration wizard."
+    )
 ) -> None:
     """
     Initialize Timeless with configuration wizard.
-    
-    This command sets up the repository, stores keys in the Keychain, and creates necessary launch configurations.
+
+    This command sets up the repository, stores keys in the Keychain, and creates
+    necessary launch configurations.
     """
     logger.info("Initializing Timeless...")
     # TODO: Implement initialization logic
@@ -100,9 +109,16 @@ def mount() -> None:
 
 @app.command()
 def restore(
-    snapshot: str = typer.Argument(..., help="Snapshot ID or timestamp to restore from."),
+    snapshot: str = typer.Argument(
+        ..., help="Snapshot ID or timestamp to restore from."
+    ),
     path: str = typer.Argument(..., help="Path to restore from snapshot."),
-    target: Optional[str] = typer.Option(None, "--target", "-t", help="Target path for restoration (default: current directory).")
+    target: Optional[str] = typer.Option(
+        None,
+        "--target",
+        "-t",
+        help="Target path for restoration (default: current directory).",
+    ),
 ) -> None:
     """
     Restore a file or directory from a snapshot.
@@ -114,7 +130,9 @@ def restore(
 
 @app.command(name="snapshots")
 def list_snapshots(
-    json_output: bool = typer.Option(False, "--json", help="Output snapshots in JSON format.")
+    json_output: bool = typer.Option(
+        False, "--json", help="Output snapshots in JSON format."
+    )
 ) -> None:
     """
     List available snapshots.
