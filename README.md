@@ -17,10 +17,18 @@ Timeless-Py is a modern backup solution designed for macOS, providing:
 ## Features
 
 - **Snapshot Management**: Create, browse, and restore backups with ease
-- **Retention Policies**: Define flexible retention policies (hourly/daily/weekly/monthly)
+- **Retention Policies**: Define flexible retention policies (hourly/daily/weekly/monthly/yearly)
 - **Manifest Generation**: Auto-generate reinstall manifests for your Mac software
 - **Built-in Security**: Fully encrypted snapshots with secure key management
 - **FUSE Integration**: Mount snapshots as regular volumes for easy browsing
+- **Exclude Patterns**: Specify patterns for files and directories to exclude from backups
+
+### M1 Milestone Features
+
+- **Restic Engine Integration**: Full integration with Restic for backup, restore, snapshot management, and repository operations
+- **Retention Policy DSL**: Define custom retention policies in YAML to automatically manage snapshot retention
+- **Exclude Patterns Support**: Exclude specific files or directories from backups using glob patterns
+- **Comprehensive CLI Interface**: User-friendly command-line interface for all operations
 
 ## Installation
 
