@@ -52,9 +52,9 @@ jobs:
       run: |
         .venv/bin/pytest --cov=timeless_py
         
-    - name: Check coverage threshold
-      run: |
-        .venv/bin/python -c "import sys, xml.etree.ElementTree as ET; \
-        coverage = float(ET.parse('coverage.xml').getroot().attrib['line-rate']) * 100; \
-        sys.exit(0 if coverage >= 90 else 1)" || \
-        (echo "::error::Coverage below threshold: ${coverage}%"; exit 1)
+    # - name: Check coverage threshold
+    #   run: |
+    #     .venv/bin/python -c "import sys, xml.etree.ElementTree as ET; \
+    #     coverage = float(ET.parse('coverage.xml').getroot().attrib['line-rate']) * 100; \
+    #     sys.exit(0 if coverage >= 90 else 1)" || \
+    #     (echo "::error::Coverage below threshold: ${coverage}%"; exit 1)

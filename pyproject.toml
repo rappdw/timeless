@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Time Machine-style personal backup orchestrated by Python & uv"
 readme = "README.md"
 requires-python = ">=3.11"
-license = {text = "Apache-2.0"}
+license = "Apache-2.0"
 authors = [
     {name = "Timeless Team"}
 ]
@@ -17,7 +17,6 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "License :: OSI Approved :: Apache Software License",
     "Operating System :: MacOS",
     "Environment :: MacOS X",
     "Topic :: System :: Archiving :: Backup",
@@ -31,6 +30,8 @@ dependencies = [
     "pycron",
     "launchd",
     "pync",
+    "pyyaml",
+    "rich",
 ]
 
 [project.optional-dependencies]
@@ -51,6 +52,8 @@ timeless = "timeless_py.cli:app"
 [tool.ruff]
 target-version = "py311"
 line-length = 88
+
+[tool.ruff.lint]
 select = ["E", "F", "B", "I"]
 
 [tool.black]
@@ -68,6 +71,11 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
+
+# Ignore missing imports for external packages without type stubs
+[[tool.mypy.overrides]]
+module = ["typer.*", "orjson.*", "yaml.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 minversion = "6.0"
