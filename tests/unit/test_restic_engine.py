@@ -5,16 +5,17 @@ Tests for the Restic engine module.
 import json
 import os
 from pathlib import Path
+from typing import Generator
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from timeless_py.engine import Snapshot
 from timeless_py.engine.restic import ResticEngine
-from timeless_py.retention import Snapshot
 
 
 @pytest.fixture
-def mock_subprocess():
+def mock_subprocess() -> Generator[MagicMock, None, None]:
     """Fixture to mock subprocess calls."""
     with patch("timeless_py.engine.restic.subprocess") as mock_subprocess:
         # Configure the mock to return a successful CompletedProcess
@@ -26,7 +27,7 @@ def mock_subprocess():
 
 
 @pytest.fixture
-def restic_engine():
+def restic_engine() -> Generator[ResticEngine, None, None]:
     """Fixture to create a ResticEngine instance."""
     with patch.dict(os.environ, {"RESTIC_PASSWORD": "test-password"}):
         engine = ResticEngine(
@@ -35,7 +36,9 @@ def restic_engine():
         yield engine
 
 
-def test_restic_engine_init(restic_engine, mock_subprocess):
+def test_restic_engine_init(
+    restic_engine: ResticEngine, mock_subprocess: MagicMock
+) -> None:
     """Test initializing a repository."""
     result = restic_engine.init(Path("/tmp/test-repo"), "test-password")
 
@@ -47,7 +50,9 @@ def test_restic_engine_init(restic_engine, mock_subprocess):
     assert "init" in args[0]
 
 
-def test_restic_engine_backup(restic_engine, mock_subprocess):
+def test_restic_engine_backup(
+    restic_engine: ResticEngine, mock_subprocess: MagicMock
+) -> None:
     """Test backing up files."""
     # Configure mock to return a snapshot ID
     mock_process = MagicMock()
@@ -81,7 +86,9 @@ def test_restic_engine_backup(restic_engine, mock_subprocess):
         assert f"--tag={tag}" in args[0]
 
 
-def test_restic_engine_snapshots(restic_engine, mock_subprocess):
+def test_restic_engine_snapshots(
+    restic_engine: ResticEngine, mock_subprocess: MagicMock
+) -> None:
     """Test listing snapshots."""
     # Sample snapshot data
     snapshots_data = [
@@ -122,7 +129,9 @@ def test_restic_engine_snapshots(restic_engine, mock_subprocess):
     assert "--json" in args[0]
 
 
-def test_restic_engine_forget(restic_engine, mock_subprocess):
+def test_restic_engine_forget(
+    restic_engine: ResticEngine, mock_subprocess: MagicMock
+) -> None:
     """Test forgetting snapshots."""
     snapshot_ids = ["abc123", "def456"]
 
@@ -140,7 +149,9 @@ def test_restic_engine_forget(restic_engine, mock_subprocess):
         assert snapshot_id in args[0]
 
 
-def test_restic_engine_prune(restic_engine, mock_subprocess):
+def test_restic_engine_prune(
+    restic_engine: ResticEngine, mock_subprocess: MagicMock
+) -> None:
     """Test pruning the repository."""
     result = restic_engine.prune()
 
@@ -152,7 +163,9 @@ def test_restic_engine_prune(restic_engine, mock_subprocess):
     assert "prune" in args[0]
 
 
-def test_restic_engine_check(restic_engine, mock_subprocess):
+def test_restic_engine_check(
+    restic_engine: ResticEngine, mock_subprocess: MagicMock
+) -> None:
     """Test checking the repository."""
     result = restic_engine.check()
 
@@ -164,7 +177,9 @@ def test_restic_engine_check(restic_engine, mock_subprocess):
     assert "check" in args[0]
 
 
-def test_restic_engine_restore(restic_engine, mock_subprocess):
+def test_restic_engine_restore(
+    restic_engine: ResticEngine, mock_subprocess: MagicMock
+) -> None:
     """Test restoring files."""
     snapshot_id = "abc123"
     paths = ["/home/user/docs/file.txt"]
@@ -188,7 +203,9 @@ def test_restic_engine_restore(restic_engine, mock_subprocess):
     assert f"--target={target}" in args[0]
 
 
-def test_restic_engine_mount(restic_engine, mock_subprocess):
+def test_restic_engine_mount(
+    restic_engine: ResticEngine, mock_subprocess: MagicMock
+) -> None:
     """Test mounting the repository."""
     target = Path("/tmp/mount")
 
@@ -206,7 +223,9 @@ def test_restic_engine_mount(restic_engine, mock_subprocess):
     assert str(target) in args[0]
 
 
-def test_restic_engine_unmount(restic_engine, mock_subprocess):
+def test_restic_engine_unmount(
+    restic_engine: ResticEngine, mock_subprocess: MagicMock
+) -> None:
     """Test unmounting the repository."""
     target = Path("/tmp/mount")
 
@@ -224,11 +243,13 @@ def test_restic_engine_unmount(restic_engine, mock_subprocess):
     assert str(target) in args[0]
 
 
-def test_restic_engine_error_handling(restic_engine, mock_subprocess):
+def test_restic_engine_run_command_error(
+    restic_engine: ResticEngine, mock_subprocess: MagicMock
+) -> None:
     """Test error handling in the engine."""
     # Configure mock to simulate a failed command
     mock_subprocess.run.return_value.returncode = 1
-    mock_subprocess.run.return_value.stderr = b"Error: something went wrong"
+    mock_subprocess.run.return_value.stderr = b"Error: repository not found"
 
     result = restic_engine.init(Path("/tmp/test-repo"), "test-password")
 

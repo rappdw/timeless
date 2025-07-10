@@ -180,15 +180,11 @@ class RetentionEvaluator:
             # Group by week (use ISO week)
             # Go to the beginning of the week (Monday)
             week_start = time - timedelta(days=time.weekday())
-            week_key = week_start.replace(
-                hour=0, minute=0, second=0, microsecond=0
-            )
+            week_key = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
             grouped[RetentionUnit.WEEKLY].append((week_key, snap))
 
             # Group by month
-            month_key = time.replace(
-                day=1, hour=0, minute=0, second=0, microsecond=0
-            )
+            month_key = time.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
             grouped[RetentionUnit.MONTHLY].append((month_key, snap))
 
             # Group by year
@@ -201,9 +197,7 @@ class RetentionEvaluator:
 
     def _select_snapshots_to_keep(
         self,
-        grouped_snapshots: Dict[
-            RetentionUnit, List[Tuple[datetime, Snapshot]]
-        ],
+        grouped_snapshots: Dict[RetentionUnit, List[Tuple[datetime, Snapshot]]],
     ) -> Set[str]:
         """
         Select snapshots to keep based on the retention policy.
@@ -266,10 +260,7 @@ class RetentionEvaluator:
             # Get unique weeks and keep the newest snapshot for each week
             unique_weeks = {}
             for week_key, snap in grouped_snapshots[RetentionUnit.WEEKLY]:
-                if (
-                    week_key not in unique_weeks
-                    and snap.id not in processed_ids
-                ):
+                if week_key not in unique_weeks and snap.id not in processed_ids:
                     unique_weeks[week_key] = snap
 
             # Keep the newest N weekly snapshots
@@ -287,10 +278,7 @@ class RetentionEvaluator:
             # Get unique months and keep the newest snapshot for each month
             unique_months = {}
             for month_key, snap in grouped_snapshots[RetentionUnit.MONTHLY]:
-                if (
-                    month_key not in unique_months
-                    and snap.id not in processed_ids
-                ):
+                if month_key not in unique_months and snap.id not in processed_ids:
                     unique_months[month_key] = snap
 
             # Keep the newest N monthly snapshots
@@ -308,10 +296,7 @@ class RetentionEvaluator:
             # Get unique years and keep the newest snapshot for each year
             unique_years = {}
             for year_key, snap in grouped_snapshots[RetentionUnit.YEARLY]:
-                if (
-                    year_key not in unique_years
-                    and snap.id not in processed_ids
-                ):
+                if year_key not in unique_years and snap.id not in processed_ids:
                     unique_years[year_key] = snap
 
             # Keep the newest N yearly snapshots
@@ -326,9 +311,7 @@ class RetentionEvaluator:
 
         return to_keep
 
-    def evaluate(
-        self, snapshots: List[Snapshot]
-    ) -> Tuple[List[str], List[str]]:
+    def evaluate(self, snapshots: List[Snapshot]) -> Tuple[List[str], List[str]]:
         """
         Evaluate the retention policy against a list of snapshots.
 

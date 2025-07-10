@@ -3,14 +3,16 @@ Tests for the retention policy module.
 """
 
 import datetime
+from pathlib import Path
 
 from hypothesis import given
 from hypothesis import strategies as st
 
-from timeless_py.retention import RetentionEvaluator, RetentionPolicy, Snapshot
+from timeless_py.engine import Snapshot
+from timeless_py.retention import RetentionEvaluator, RetentionPolicy
 
 
-def test_retention_policy_default():
+def test_retention_policy_default() -> None:
     """Test that default retention policy is created correctly."""
     policy = RetentionPolicy()
 
@@ -23,7 +25,7 @@ def test_retention_policy_default():
     assert policy.exclude_patterns == []
 
 
-def test_retention_policy_from_dict():
+def test_retention_policy_from_dict() -> None:
     """Test creating retention policy from dictionary."""
     policy_dict = {
         "hourly": 12,
@@ -44,7 +46,7 @@ def test_retention_policy_from_dict():
     assert policy.exclude_patterns == ["*.tmp", "node_modules/"]
 
 
-def test_retention_policy_from_yaml(tmp_path):
+def test_retention_policy_from_yaml(tmp_path: Path) -> None:
     """Test creating retention policy from YAML file."""
     yaml_content = """
     hourly: 12
@@ -60,7 +62,7 @@ def test_retention_policy_from_yaml(tmp_path):
     yaml_file = tmp_path / "policy.yaml"
     yaml_file.write_text(yaml_content)
 
-    policy = RetentionPolicy.from_file(yaml_file)
+    policy = RetentionPolicy.from_file(str(yaml_file))
 
     assert policy.hourly == 12
     assert policy.daily == 14
@@ -70,7 +72,7 @@ def test_retention_policy_from_yaml(tmp_path):
     assert policy.exclude_patterns == ["*.tmp", "node_modules/"]
 
 
-def test_retention_evaluator_basic():
+def test_retention_evaluator_basic() -> None:
     """Test basic retention evaluation."""
     now = datetime.datetime.now(datetime.timezone.utc)
 
@@ -161,7 +163,9 @@ def test_retention_evaluator_basic():
     monthly=st.integers(min_value=0, max_value=100),
     yearly=st.integers(min_value=0, max_value=100),
 )
-def test_retention_policy_property_based(hourly, daily, weekly, monthly, yearly):
+def test_retention_policy_property_based(
+    hourly: int, daily: int, weekly: int, monthly: int, yearly: int
+) -> None:
     """Test retention policy with property-based testing."""
     policy = RetentionPolicy(
         hourly=hourly, daily=daily, weekly=weekly, monthly=monthly, yearly=yearly

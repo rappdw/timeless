@@ -48,9 +48,7 @@ def callback(
     verbose: bool = typer.Option(
         False, "--verbose", "-v", help="Enable verbose output."
     ),
-    json: bool = typer.Option(
-        False, "--json", help="Output logs in JSON format."
-    ),
+    json: bool = typer.Option(False, "--json", help="Output logs in JSON format."),
     version: bool = typer.Option(
         False, "--version", help="Show the application version and exit."
     ),
@@ -106,48 +104,54 @@ def init(
 
 @app.command()
 def backup(
-    paths: List[str] = typer.Argument(
-        None,
-        help="Paths to back up. Defaults to home directory if not specified.",
-    ),
-    repo: str = typer.Option(
-        None,
-        "--repo",
-        "-r",
-        help="Path to the repository. Uses TIMELESS_REPO env var if not specified.",
-    ),
-    policy_file: str = typer.Option(
-        None,
-        "--policy",
-        "-p",
-        help="Path to retention policy file. Uses default policy if not specified.",
-    ),
-    password: str = typer.Option(
-        None,
-        "--password",
-        help="Repository password. Uses TIMELESS_PASSWORD env var if not specified.",
-    ),
-    password_file: str = typer.Option(
-        None,
-        "--password-file",
-        help="Path to password file. Uses TIMELESS_PASSWORD_FILE env var if not set.",
-    ),
-    tags: List[str] = typer.Option(
-        None, "--tag", "-t", help="Tags to apply to the snapshot."
-    ),
-    no_prune: bool = typer.Option(
-        False, "--no-prune", help="Skip pruning after backup."
-    ),
+    paths: Optional[List[str]] = None,
+    repo: Optional[str] = None,
+    policy_file: Optional[str] = None,
+    password: Optional[str] = None,
+    password_file: Optional[str] = None,
+    tags: Optional[List[str]] = None,
+    no_prune: bool = False,
 ) -> None:
     """
     Run backup snapshot, retention pruning, and manifest refresh.
     """
+    # Define typer options inside the function to avoid B008
+    paths = typer.Argument(
+        paths, help="Paths to back up. Defaults to home directory if not specified."
+    )
+    repo = typer.Option(
+        repo,
+        "--repo",
+        "-r",
+        help="Path to the repository. Uses TIMELESS_REPO env var if not specified.",
+    )
+    policy_file = typer.Option(
+        policy_file,
+        "--policy",
+        "-p",
+        help="Path to retention policy file. Uses default policy if not specified.",
+    )
+    password = typer.Option(
+        password,
+        "--password",
+        help="Repository password. Uses TIMELESS_PASSWORD env var if not specified.",
+    )
+    password_file = typer.Option(
+        password_file,
+        "--password-file",
+        help="Path to password file. Uses TIMELESS_PASSWORD_FILE env var if not set.",
+    )
+    tags = typer.Option(tags, "--tag", "-t", help="Tags to apply to the snapshot.")
+    no_prune = typer.Option(no_prune, "--no-prune", help="Skip pruning after backup.")
+
     logger.info("Running backup...")
 
     # Determine repository path
     repo_path = repo or os.environ.get("TIMELESS_REPO")
     if not repo_path:
-        error_msg = "Repository path not specified. Use --repo or set TIMELESS_REPO env var."
+        error_msg = (
+            "Repository path not specified. " "Use --repo or set TIMELESS_REPO env var."
+        )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
         raise typer.Exit(1)
@@ -157,15 +161,16 @@ def backup(
     pwd_file = password_file or os.environ.get("TIMELESS_PASSWORD_FILE")
 
     if not pwd and not pwd_file:
-        error_msg = "Password not specified. Use --password, --password-file, or set env vars."
+        error_msg = (
+            "Password not specified. "
+            "Use --password, --password-file, or set env vars."
+        )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
         raise typer.Exit(1)
 
     # Determine paths to back up
-    backup_paths = (
-        [Path(p).expanduser() for p in paths] if paths else [Path.home()]
-    )
+    backup_paths = [Path(p).expanduser() for p in paths] if paths else [Path.home()]
     logger.info(
         f"Backing up {len(backup_paths)} paths: "
         f"{', '.join(str(p) for p in backup_paths)}"
@@ -275,7 +280,9 @@ def mount(
     # Determine repository path
     repo_path = repo or os.environ.get("TIMELESS_REPO")
     if not repo_path:
-        error_msg = "Repository path not specified. Use --repo or set TIMELESS_REPO env var."
+        error_msg = (
+            "Repository path not specified. " "Use --repo or set TIMELESS_REPO env var."
+        )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
         raise typer.Exit(1)
@@ -285,7 +292,10 @@ def mount(
     pwd_file = password_file or os.environ.get("TIMELESS_PASSWORD_FILE")
 
     if not pwd and not pwd_file:
-        error_msg = "Password not specified. Use --password, --password-file, or set env vars."
+        error_msg = (
+            "Password not specified. "
+            "Use --password, --password-file, or set env vars."
+        )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
         raise typer.Exit(1)
@@ -369,14 +379,14 @@ def restore(
     Restore a file or directory from a snapshot.
     """
     target_display = target if target else "current directory"
-    logger.info(
-        f"Restoring {path} from snapshot {snapshot} to {target_display}..."
-    )
+    logger.info(f"Restoring {path} from snapshot {snapshot} to {target_display}...")
 
     # Determine repository path
     repo_path = repo or os.environ.get("TIMELESS_REPO")
     if not repo_path:
-        error_msg = "Repository path not specified. Use --repo or set TIMELESS_REPO env var."
+        error_msg = (
+            "Repository path not specified. " "Use --repo or set TIMELESS_REPO env var."
+        )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
         raise typer.Exit(1)
@@ -386,7 +396,10 @@ def restore(
     pwd_file = password_file or os.environ.get("TIMELESS_PASSWORD_FILE")
 
     if not pwd and not pwd_file:
-        error_msg = "Password not specified. Use --password, --password-file, or set env vars."
+        error_msg = (
+            "Password not specified. "
+            "Use --password, --password-file, or set env vars."
+        )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
         raise typer.Exit(1)
@@ -406,9 +419,7 @@ def restore(
     target_path = Path(target).expanduser() if target else Path.cwd()
 
     # Run restore
-    logger.info(
-        f"Restoring {path} from snapshot {snapshot} to {target_path}..."
-    )
+    logger.info(f"Restoring {path} from snapshot {snapshot} to {target_path}...")
     if engine.restore(snapshot, [path], target_path):
         logger.info(
             f"Successfully restored {path} from snapshot {snapshot} to {target_path}"
@@ -418,9 +429,7 @@ def restore(
         )
     else:
         logger.error(f"Failed to restore {path} from snapshot {snapshot}")
-        console.print(
-            f"[red]Failed to restore {path} from snapshot {snapshot}[/red]"
-        )
+        console.print(f"[red]Failed to restore {path} from snapshot {snapshot}[/red]")
         raise typer.Exit(1)
 
 
@@ -454,7 +463,9 @@ def list_snapshots(
     # Determine repository path
     repo_path = repo or os.environ.get("TIMELESS_REPO")
     if not repo_path:
-        error_msg = "Repository path not specified. Use --repo or set TIMELESS_REPO env var."
+        error_msg = (
+            "Repository path not specified. " "Use --repo or set TIMELESS_REPO env var."
+        )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
         raise typer.Exit(1)
@@ -464,7 +475,10 @@ def list_snapshots(
     pwd_file = password_file or os.environ.get("TIMELESS_PASSWORD_FILE")
 
     if not pwd and not pwd_file:
-        error_msg = "Password not specified. Use --password, --password-file, or set env vars."
+        error_msg = (
+            "Password not specified. "
+            "Use --password, --password-file, or set env vars."
+        )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
         raise typer.Exit(1)
@@ -553,7 +567,9 @@ def check(
     # Determine repository path
     repo_path = repo or os.environ.get("TIMELESS_REPO")
     if not repo_path:
-        error_msg = "Repository path not specified. Use --repo or set TIMELESS_REPO env var."
+        error_msg = (
+            "Repository path not specified. " "Use --repo or set TIMELESS_REPO env var."
+        )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
         raise typer.Exit(1)
@@ -563,7 +579,10 @@ def check(
     pwd_file = password_file or os.environ.get("TIMELESS_PASSWORD_FILE")
 
     if not pwd and not pwd_file:
-        error_msg = "Password not specified. Use --password, --password-file, or set env vars."
+        error_msg = (
+            "Password not specified. "
+            "Use --password, --password-file, or set env vars."
+        )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
         raise typer.Exit(1)

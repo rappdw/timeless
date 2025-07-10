@@ -47,13 +47,9 @@ class ResticEngine(BaseEngine):
         self.binary_path = binary_path
 
         if not password and not password_file:
-            raise ValueError(
-                "Either password or password_file must be provided"
-            )
+            raise ValueError("Either password or password_file must be provided")
         if password and password_file:
-            raise ValueError(
-                "Only one of password or password_file can be provided"
-            )
+            raise ValueError("Only one of password or password_file can be provided")
 
     def _get_env(self) -> Dict[str, str]:
         """Get the environment variables for Restic commands."""
@@ -120,9 +116,7 @@ class ResticEngine(BaseEngine):
         self.password_file = None
 
         try:
-            returncode, stdout, stderr = self._run_command(
-                ["init"], check=False
-            )
+            returncode, stdout, stderr = self._run_command(["init"], check=False)
             if returncode == 0:
                 logger.info(f"Initialized repository at {repo_path}")
                 return True
@@ -132,9 +126,7 @@ class ResticEngine(BaseEngine):
                 )
                 return False
         except Exception as e:
-            logger.error(
-                f"Failed to initialize repository at {repo_path}: {e}"
-            )
+            logger.error(f"Failed to initialize repository at {repo_path}: {e}")
             return False
 
     def backup(
@@ -173,9 +165,7 @@ class ResticEngine(BaseEngine):
         try:
             returncode, stdout, stderr = self._run_command(args, check=False)
             if returncode != 0:
-                logger.error(
-                    f"Backup failed with return code {returncode}: {stderr}"
-                )
+                logger.error(f"Backup failed with return code {returncode}: {stderr}")
                 return None
 
             # Handle the case where stdout might be bytes (in tests) or string
@@ -233,9 +223,7 @@ class ResticEngine(BaseEngine):
             for snap in data:
                 snapshot = Snapshot(
                     id=snap["id"],
-                    time=datetime.fromisoformat(
-                        snap["time"].replace("Z", "+00:00")
-                    ),
+                    time=datetime.fromisoformat(snap["time"].replace("Z", "+00:00")),
                     hostname=snap["hostname"],
                     paths=snap["paths"],
                     tags=snap.get("tags", []),
@@ -330,14 +318,10 @@ class ResticEngine(BaseEngine):
         try:
             returncode, stdout, stderr = self._run_command(args, check=False)
             if returncode == 0:
-                logger.info(
-                    f"Restored {len(paths)} paths from snapshot {snapshot_id}"
-                )
+                logger.info(f"Restored {len(paths)} paths from snapshot {snapshot_id}")
                 return True
             else:
-                logger.error(
-                    f"Failed to restore from snapshot {snapshot_id}: {stderr}"
-                )
+                logger.error(f"Failed to restore from snapshot {snapshot_id}: {stderr}")
                 return False
         except Exception as e:
             logger.error(f"Failed to restore from snapshot {snapshot_id}: {e}")
