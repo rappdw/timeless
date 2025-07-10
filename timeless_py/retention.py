@@ -127,7 +127,7 @@ class RetentionPolicy:
         Returns:
             YAML string representation of the policy
         """
-        return yaml.dump(self.to_dict(), default_flow_style=False)
+        return str(yaml.dump(self.to_dict(), default_flow_style=False))
 
 
 class RetentionEvaluator:
