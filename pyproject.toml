@@ -72,6 +72,11 @@ warn_unused_configs = true
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 
+# Ignore missing imports for external packages without type stubs
+[[tool.mypy.overrides]]
+module = ["typer.*", "orjson.*", "yaml.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 minversion = "6.0"
 testpaths = ["tests"]
