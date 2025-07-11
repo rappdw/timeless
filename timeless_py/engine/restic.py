@@ -170,7 +170,12 @@ class ResticEngine(BaseEngine):
                 args, stream_output=verbose, capture_output=capture_output, check=False
             )
 
-            if returncode != 0:
+            if returncode == 3:
+                # Restic returns  if some files could not be read. Treat as a warning.
+                logger.warning(f"Backup completed with warnings (code: {returncode}).")
+                if stderr:
+                    logger.warning(f"Restic stderr:\n{stderr}")
+            elif returncode != 0:
                 logger.error(f"Backup failed with return code {returncode}: {stderr}")
                 return None
 
