@@ -41,8 +41,8 @@ def test_restic_engine_init(
 ) -> None:
     """Test initializing a repository."""
     result = restic_engine.init(Path("/tmp/test-repo"), "test-password")
-
     assert result is True
+
     mock_subprocess.run.assert_called_once()
 
     # Check that the command includes 'init'
@@ -57,7 +57,7 @@ def test_restic_engine_backup(
     # Configure mock to return a snapshot ID
     mock_process = MagicMock()
     mock_process.returncode = 0
-    mock_process.stdout = b'{"snapshot_id": "abc123"}'
+    mock_process.stdout = '{"message_type": "summary", "snapshot_id": "abc123"}'
     mock_subprocess.run.return_value = mock_process
 
     paths = [Path("/home/user/docs"), Path("/home/user/photos")]

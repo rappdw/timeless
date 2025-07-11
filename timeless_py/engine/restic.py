@@ -51,6 +51,22 @@ class ResticEngine(BaseEngine):
         if password and password_file:
             raise ValueError("Only one of password or password_file can be provided")
 
+    def init(self, repo_path: Path, password: str) -> bool:
+        """Initializes a new restic repository."""
+        self.repo_path = repo_path
+        self.password = password
+        self.password_file = None
+        logger.info(f"Initializing repository at {self.repo_path}")
+        try:
+            returncode, _, stderr = self._run_command(["init"], check=False)
+            if returncode == 0:
+                return True
+            logger.error(f"Failed to initialize repository: {stderr}")
+            return False
+        except Exception as e:
+            logger.error(f"Failed to initialize repository at {self.repo_path}: {e}")
+            return False
+
     def _get_env(self) -> Dict[str, str]:
         """Get the environment variables for Restic commands."""
         env = os.environ.copy()
@@ -64,7 +80,11 @@ class ResticEngine(BaseEngine):
         return env
 
     def _run_command(
-        self, args: List[str], capture_output: bool = True, check: bool = True
+        self,
+        args: List[str],
+        capture_output: bool = True,
+        check: bool = True,
+        stream_output: bool = False,
     ) -> Tuple[int, str, str]:
         """
         Run a Restic command.
@@ -82,14 +102,18 @@ class ResticEngine(BaseEngine):
         logger.debug(f"Running command: {cmd_str}")
 
         try:
+            # When streaming, we can't also capture the output.
+            # The subprocess will inherit stdout/stderr from the parent.
+            use_capture = capture_output and not stream_output
+
             result = subprocess.run(
                 cmd,
                 env=self._get_env(),
-                capture_output=capture_output,
+                capture_output=use_capture,
                 text=True,
                 check=check,
             )
-            return result.returncode, result.stdout, result.stderr
+            return result.returncode, result.stdout or "", result.stderr or ""
         except subprocess.CalledProcessError as e:
             logger.error(f"Command failed: {cmd_str}")
             logger.error(f"Return code: {e.returncode}")
@@ -99,41 +123,12 @@ class ResticEngine(BaseEngine):
                 raise
             return e.returncode, e.stdout, e.stderr
 
-    def init(self, repo_path: Path, password: str) -> bool:
-        """
-        Initialize a new Restic repository.
-
-        Args:
-            repo_path: Path to the repository
-            password: Repository password
-
-        Returns:
-            True if successful, False otherwise
-        """
-        # Save the new repo path and password
-        self.repo_path = repo_path
-        self.password = password
-        self.password_file = None
-
-        try:
-            returncode, stdout, stderr = self._run_command(["init"], check=False)
-            if returncode == 0:
-                logger.info(f"Initialized repository at {repo_path}")
-                return True
-            else:
-                logger.error(
-                    f"Failed to initialize repository at {repo_path}: {stderr}"
-                )
-                return False
-        except Exception as e:
-            logger.error(f"Failed to initialize repository at {repo_path}: {e}")
-            return False
-
     def backup(
         self,
         paths: List[Path],
         exclude_patterns: Optional[List[str]] = None,
         tags: Optional[List[str]] = None,
+        verbose: bool = False,
     ) -> Optional[str]:
         """
         Create a new backup snapshot.
@@ -146,7 +141,12 @@ class ResticEngine(BaseEngine):
         Returns:
             Snapshot ID if successful, None otherwise
         """
-        args = ["backup", "--json"]
+        args = ["backup"]
+        if verbose:
+            args.append("--verbose")
+        else:
+            # JSON output is required to parse the snapshot ID
+            args.append("--json")
 
         # Add paths
         for path in paths:
@@ -163,9 +163,19 @@ class ResticEngine(BaseEngine):
                 args.append(f"--tag={tag}")
 
         try:
-            returncode, stdout, stderr = self._run_command(args, check=False)
+            # When verbose is True, stdout is streamed and not captured.
+            # We also don't use --json, so we can't parse the snapshot ID.
+            capture_output = not verbose
+            returncode, stdout, stderr = self._run_command(
+                args, stream_output=verbose, capture_output=capture_output, check=False
+            )
+
             if returncode != 0:
                 logger.error(f"Backup failed with return code {returncode}: {stderr}")
+                return None
+
+            if verbose:
+                # In verbose mode, we stream output and don't get a snapshot ID back.
                 return None
 
             # Handle the case where stdout might be bytes (in tests) or string
@@ -176,8 +186,7 @@ class ResticEngine(BaseEngine):
                     data = json.loads(stdout.decode("utf-8"))
                 else:
                     data = json.loads(stdout)
-
-                if "snapshot_id" in data:
+                if data.get("message_type") == "summary":
                     snapshot_id = str(data["snapshot_id"])
                     logger.info(f"Created snapshot: {snapshot_id}")
                     return snapshot_id
@@ -316,8 +325,9 @@ class ResticEngine(BaseEngine):
             args.extend(["--include", path])
 
         try:
-            returncode, stdout, stderr = self._run_command(args, check=False)
-            if returncode == 0:
+            returncode, stdout, stderr = self._run_command(args)
+
+            if returncode == 0 and stdout:
                 logger.info(f"Restored {len(paths)} paths from snapshot {snapshot_id}")
                 return True
             else:

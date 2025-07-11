@@ -158,6 +158,7 @@ def test_restore_command(runner: CliRunner, mock_restic_engine: MagicMock) -> No
     assert "Successfully restored" in result.stdout
 
     # Check that restore was called with the correct arguments
+
     mock_engine.restore.assert_called_once()
     args, kwargs = mock_engine.restore.call_args
     assert args[0] == "latest"
