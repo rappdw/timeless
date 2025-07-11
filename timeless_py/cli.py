@@ -8,6 +8,7 @@ application.
 import logging
 import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import List, Optional
 
@@ -17,6 +18,15 @@ from rich.logging import RichHandler
 
 from timeless_py import __version__
 from timeless_py.engine.restic import ResticEngine
+from timeless_py.manifest.apps import generate_apps_manifest
+from timeless_py.manifest.brew import generate_brewfile
+from timeless_py.manifest.mas import generate_mas_manifest
+from timeless_py.manifest.replay import (
+    find_latest_manifest_snapshot,
+    replay_brewfile,
+    replay_mas_manifest,
+    restore_manifests,
+)
 from timeless_py.retention import RetentionEvaluator, RetentionPolicy
 
 # Set up the console and logger
@@ -195,6 +205,36 @@ def backup(
     except ValueError as e:
         logger.error(f"Failed to initialize Restic engine: {e}")
         raise typer.Exit(1) from e
+
+    # Manifest refresh
+    with tempfile.TemporaryDirectory(prefix="timeless-manifests-") as temp_dir_str:
+        temp_dir = Path(temp_dir_str)
+        logger.info(f"Generating manifests in temporary directory: {temp_dir}")
+
+        manifest_paths = []
+        if brewfile_path := generate_brewfile(temp_dir):
+            manifest_paths.append(brewfile_path)
+        if apps_manifest_path := generate_apps_manifest(temp_dir):
+            manifest_paths.append(apps_manifest_path)
+        if mas_manifest_path := generate_mas_manifest(temp_dir):
+            manifest_paths.append(mas_manifest_path)
+
+        if manifest_paths:
+            logger.info("Backing up generated manifests...")
+            manifest_tags = (tags or []) + ["manifest"]
+            manifest_snapshot_id = engine.backup(
+                paths=manifest_paths,
+                tags=manifest_tags,
+                exclude_patterns=[],  # No excludes for manifests
+            )
+            if manifest_snapshot_id:
+                logger.info(
+                    f"Manifest backup successful. Snapshot ID: {manifest_snapshot_id}"
+                )
+            else:
+                logger.warning("Manifest backup failed. Continuing with main backup.")
+        else:
+            logger.info("No manifests were generated. Skipping manifest backup.")
 
     # Run backup
     logger.info(f"Backing up {', '.join(str(p) for p in backup_paths)}...")
@@ -612,12 +652,103 @@ def check(
 
 
 @app.command(name="brew-replay")
-def brew_replay() -> None:
+def brew_replay(
+    repo: Optional[str] = typer.Option(
+        None,
+        "--repo",
+        "-r",
+        help="Path to the repository. Uses TIMELESS_REPO env var if not specified.",
+    ),
+    password: Optional[str] = typer.Option(
+        None,
+        "--password",
+        help="Repository password. Uses TIMELESS_PASSWORD env var if not specified.",
+    ),
+    password_file: Optional[str] = typer.Option(
+        None,
+        "--password-file",
+        help="Path to password file. Uses TIMELESS_PASSWORD_FILE env var if not set.",
+    ),
+) -> None:
     """
     Reinstall software from manifests onto a clean Mac.
     """
-    logger.info("Replaying software installation from manifests...")
-    # TODO: Implement brew replay logic
+    logger.info("Starting software replay from manifests...")
+
+    # Determine repository path
+    repo_path = repo or os.environ.get("TIMELESS_REPO")
+    if not repo_path:
+        log_error(
+            "Repository path not specified. Use --repo or set TIMELESS_REPO env var."
+        )
+        raise typer.Exit(1)
+
+    # Determine password or password file
+    pwd = password or os.environ.get("TIMELESS_PASSWORD")
+    pwd_file = password_file or os.environ.get("TIMELESS_PASSWORD_FILE")
+
+    if not pwd and not pwd_file:
+        log_error(
+            "Password not specified. Use --password, --password-file, or set env vars."
+        )
+        raise typer.Exit(1)
+
+    # Initialize engine
+    try:
+        engine = ResticEngine(
+            repo_path=Path(repo_path),
+            password=pwd,
+            password_file=Path(pwd_file) if pwd_file else None,
+        )
+    except ValueError as e:
+        log_error(f"Failed to initialize Restic engine: {e}")
+        raise typer.Exit(1) from e
+
+    # Find the latest manifest snapshot
+    latest_manifest = find_latest_manifest_snapshot(engine)
+    if not latest_manifest:
+        log_error("Could not find a manifest snapshot. Nothing to replay.")
+        raise typer.Exit(1)
+
+    with tempfile.TemporaryDirectory(prefix="timeless-replay-") as temp_dir_str:
+        temp_dir = Path(temp_dir_str)
+        logger.info(f"Restoring manifests to temporary directory: {temp_dir}")
+
+        restored_manifests = restore_manifests(engine, latest_manifest.id, temp_dir)
+
+        if not restored_manifests:
+            log_error("Failed to restore any manifests. Aborting replay.")
+            raise typer.Exit(1)
+
+        # Replay Brewfile if it exists
+        if "Brewfile" in restored_manifests:
+            replay_brewfile(restored_manifests["Brewfile"])
+        else:
+            logger.info(
+                "No Brewfile found in manifest snapshot. Skipping Homebrew replay."
+            )
+
+        # Replay MAS manifest if it exists
+        if "mas.txt" in restored_manifests:
+            replay_mas_manifest(restored_manifests["mas.txt"])
+        else:
+            logger.info("No mas.txt found in manifest snapshot. Skipping MAS replay.")
+
+        # Provide guidance for applications.json
+        if "applications.json" in restored_manifests:
+            console.print(
+                "\n[bold yellow]Manual Action Required for Applications:[/bold yellow]"
+            )
+            console.print(
+                f"An application manifest has been restored to: "
+                f"[cyan]{restored_manifests['applications.json']}[/cyan]"
+            )
+            console.print(
+                "This file lists GUI applications that may need to be reinstalled "
+                "manually."
+            )
+
+        console.print("\n[bold green]Manifest replay process complete.[/bold green]")
 
 
 @app.command()
