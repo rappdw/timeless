@@ -5,6 +5,7 @@ This module provides the command-line entry point for the Timeless-Py backup
 application.
 """
 
+import json
 import logging
 import os
 import sys
@@ -173,7 +174,11 @@ def backup(
     paths: Annotated[
         Optional[List[str]],
         typer.Argument(
-            help="Paths to back up. Defaults to home directory if not specified."
+            help=(
+                "Paths to back up. If not specified, runs a full backup of "
+                "home, library, and cloud storage directories with "
+                "appropriate tags and exclusions."
+            )
         ),
     ] = None,
     repo: Annotated[
@@ -249,13 +254,6 @@ def backup(
         console.print(f"[red]{error_msg}[/red]")
         raise typer.Exit(1)
 
-    # Determine paths to back up
-    backup_paths = [Path(p).expanduser() for p in paths] if paths else [Path.home()]
-    logger.info(
-        f"Backing up {len(backup_paths)} paths: "
-        f"{', '.join(str(p) for p in backup_paths)}"
-    )
-
     # Load retention policy
     policy = None
     if policy_file:
@@ -307,21 +305,69 @@ def backup(
             logger.info("No manifests were generated. Skipping manifest backup.")
 
     # Run backup
-    logger.info(f"Backing up {', '.join(str(p) for p in backup_paths)}...")
-    snapshot_id = engine.backup(
-        paths=backup_paths,
-        tags=tags or [],
-        exclude_patterns=policy.exclude_patterns,
-        verbose=verbose,
-    )
+    if paths:
+        # If paths are provided, back them up directly
+        backup_paths = [Path(p).expanduser() for p in paths]
+        logger.info(f"Backing up specified paths: {backup_paths}")
+        snapshot_id = engine.backup(
+            paths=backup_paths,
+            tags=tags or [],
+            exclude_patterns=policy.exclude_patterns,
+            verbose=verbose,
+        )
+        if not snapshot_id and not verbose:
+            log_error("Backup of specified paths failed.")
+            raise typer.Exit(1)
+        else:
+            logger.info(f"Backup successful. Snapshot ID: {snapshot_id}")
 
-    if snapshot_id:
-        logger.info(f"Backup successful. Snapshot ID: {snapshot_id}")
-        console.print(f"Backup successful. Snapshot ID: {snapshot_id}")
     else:
-        logger.error("Backup failed")
-        console.print("[red]Backup failed[/red]")
-        raise typer.Exit(1)
+        # Default behavior: back up home, library, and cloud storage separately
+        home_dir = Path.home()
+        library_dir = home_dir / "Library"
+        cloud_storage_dir = library_dir / "CloudStorage"
+        base_tags = tags or []
+
+        # 1. Backup home directory, excluding Library and CloudStorage
+        logger.info(f"Backing up home directory ({home_dir}) with exclusions...")
+        exclusions = policy.exclude_patterns + [str(library_dir)]
+        if cloud_storage_dir.exists():
+            exclusions.append(str(cloud_storage_dir))
+
+        engine.backup(
+            paths=[home_dir],
+            exclude_patterns=exclusions,
+            tags=base_tags + ["home"],
+            verbose=verbose,
+        )
+
+        # 2. Backup Library, excluding CloudStorage
+        if library_dir.exists():
+            logger.info(f"Backing up Library directory ({library_dir})...")
+            library_exclusions = policy.exclude_patterns[:]
+            if cloud_storage_dir.exists():
+                library_exclusions.append(str(cloud_storage_dir))
+
+            engine.backup(
+                paths=[library_dir],
+                exclude_patterns=library_exclusions,
+                tags=base_tags + ["library"],
+                verbose=verbose,
+            )
+
+        # 3. Backup Cloud Storage directories
+        if cloud_storage_dir.exists():
+            for provider_dir in cloud_storage_dir.iterdir():
+                if provider_dir.is_dir():
+                    logger.info(f"Backing up {provider_dir.name} ({provider_dir})...")
+                    engine.backup(
+                        paths=[provider_dir],
+                        tags=base_tags + [f"cloud-{provider_dir.name.lower()}"],
+                        exclude_patterns=policy.exclude_patterns,
+                        verbose=verbose,
+                    )
+
+    logger.info("Backup process completed.")
 
     # Apply retention policy if pruning is enabled
     if not no_prune:
@@ -356,6 +402,108 @@ def backup(
                 logger.error("Failed to forget snapshots")
         else:
             logger.info("No snapshots to forget based on retention policy")
+
+
+@app.command(name="snapshots")
+def list_snapshots(
+    json_output: bool = typer.Option(
+        False, "--json", help="Output snapshots in JSON format."
+    ),
+    repo: str = typer.Option(
+        None,
+        "--repo",
+        "-r",
+        help="Path to the repository. Uses TIMELESS_REPO env var if not specified.",
+    ),
+    password: str = typer.Option(
+        None,
+        "--password",
+        help="Repository password. Uses TIMELESS_PASSWORD env var if not specified.",
+    ),
+    password_file: str = typer.Option(
+        None,
+        "--password-file",
+        help="Path to password file. Uses TIMELESS_PASSWORD_FILE env var if not set.",
+    ),
+) -> None:
+    """
+    List available snapshots.
+    """
+    logger.info("Listing snapshots...")
+
+    # Determine repository path
+    repo_path = repo or os.environ.get("TIMELESS_REPO")
+    if not repo_path:
+        error_msg = (
+            "Repository path not specified. " "Use --repo or set TIMELESS_REPO env var."
+        )
+        logger.error(error_msg)
+        console.print(f"[red]{error_msg}[/red]")
+        raise typer.Exit(1)
+
+    # Determine password or password file
+    pwd = password or os.environ.get("TIMELESS_PASSWORD")
+    pwd_file = password_file or os.environ.get("TIMELESS_PASSWORD_FILE")
+
+    if not pwd and not pwd_file:
+        error_msg = (
+            "Password not specified. "
+            "Use --password, --password-file, or set env vars."
+        )
+        logger.error(error_msg)
+        console.print(f"[red]{error_msg}[/red]")
+        raise typer.Exit(1)
+
+    # Initialize engine
+    try:
+        engine = ResticEngine(
+            repo_path=Path(repo_path),
+            password=pwd,
+            password_file=Path(pwd_file) if pwd_file else None,
+        )
+    except (ValueError, FileNotFoundError) as e:
+        logger.error(f"Failed to initialize Restic engine: {e}")
+        raise typer.Exit(1) from e
+
+    # Get snapshots
+    snapshots = engine.snapshots()
+
+    if not snapshots:
+        logger.info("No snapshots found")
+        return
+
+    # Output snapshots
+    if json_output:
+        snapshot_data = [
+            {
+                "id": snap.id,
+                "time": snap.time.isoformat(),
+                "hostname": snap.hostname,
+                "paths": [str(p) for p in snap.paths],
+                "tags": snap.tags,
+            }
+            for snap in snapshots
+        ]
+        console.print(json.dumps(snapshot_data, indent=2))
+    else:
+        from rich.table import Table
+
+        table = Table(title="Available Snapshots")
+        table.add_column("ID")
+        table.add_column("Time")
+        table.add_column("Hostname")
+        table.add_column("Paths")
+        table.add_column("Tags")
+
+        for snap in snapshots:
+            table.add_row(
+                snap.id[:8],  # Short ID
+                str(snap.time),
+                snap.hostname,
+                "\n".join(str(p) for p in snap.paths),
+                ", ".join(snap.tags),
+            )
+        console.print(table)
 
 
 @app.command()
@@ -542,113 +690,6 @@ def restore(
         logger.error(f"Failed to restore {path} from snapshot {snapshot}")
         console.print(f"[red]Failed to restore {path} from snapshot {snapshot}[/red]")
         raise typer.Exit(1)
-
-
-@app.command(name="snapshots")
-def list_snapshots(
-    json_output: bool = typer.Option(
-        False, "--json", help="Output snapshots in JSON format."
-    ),
-    repo: str = typer.Option(
-        None,
-        "--repo",
-        "-r",
-        help="Path to the repository. Uses TIMELESS_REPO env var if not specified.",
-    ),
-    password: str = typer.Option(
-        None,
-        "--password",
-        help="Repository password. Uses TIMELESS_PASSWORD env var if not specified.",
-    ),
-    password_file: str = typer.Option(
-        None,
-        "--password-file",
-        help="Path to password file. Uses TIMELESS_PASSWORD_FILE env var if not set.",
-    ),
-) -> None:
-    """
-    List available snapshots.
-    """
-    logger.info("Listing snapshots...")
-
-    # Determine repository path
-    repo_path = repo or os.environ.get("TIMELESS_REPO")
-    if not repo_path:
-        error_msg = (
-            "Repository path not specified. " "Use --repo or set TIMELESS_REPO env var."
-        )
-        logger.error(error_msg)
-        console.print(f"[red]{error_msg}[/red]")
-        raise typer.Exit(1)
-
-    # Determine password or password file
-    pwd = password or os.environ.get("TIMELESS_PASSWORD")
-    pwd_file = password_file or os.environ.get("TIMELESS_PASSWORD_FILE")
-
-    if not pwd and not pwd_file:
-        error_msg = (
-            "Password not specified. "
-            "Use --password, --password-file, or set env vars."
-        )
-        logger.error(error_msg)
-        console.print(f"[red]{error_msg}[/red]")
-        raise typer.Exit(1)
-
-    # Initialize engine
-    try:
-        engine = ResticEngine(
-            repo_path=Path(repo_path),
-            password=pwd,
-            password_file=Path(pwd_file) if pwd_file else None,
-        )
-    except ValueError as e:
-        logger.error(f"Failed to initialize Restic engine: {e}")
-        raise typer.Exit(1) from e
-
-    # Get snapshots
-    snapshots = engine.snapshots()
-
-    if not snapshots:
-        logger.info("No snapshots found")
-        return
-
-    # Output snapshots
-    if json_output:
-        # Output as JSON
-        import json
-
-        snapshot_data = [
-            {
-                "id": snap.id,
-                "time": snap.time.isoformat(),
-                "hostname": snap.hostname,
-                "paths": snap.paths,
-                "tags": snap.tags,
-            }
-            for snap in snapshots
-        ]
-        console.print(json.dumps(snapshot_data, indent=2))
-    else:
-        # Output as table
-        from rich.table import Table
-
-        table = Table(title="Snapshots")
-        table.add_column("ID", style="cyan")
-        table.add_column("Time", style="green")
-        table.add_column("Hostname")
-        table.add_column("Paths")
-        table.add_column("Tags")
-
-        for snap in snapshots:
-            table.add_row(
-                snap.id[:8],  # Short ID
-                snap.time.strftime("%Y-%m-%d %H:%M:%S"),
-                snap.hostname,
-                ", ".join(snap.paths),
-                ", ".join(snap.tags) if snap.tags else "",
-            )
-
-        console.print(table)
 
 
 @app.command()
