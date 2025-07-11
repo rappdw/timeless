@@ -92,11 +92,27 @@ def callback(
 
 @app.command()
 def init(
+    repo: Optional[str] = typer.Option(
+        None,
+        "--repo",
+        "-r",
+        help="Path to the repository. Uses TIMELESS_REPO env var if not specified.",
+    ),
+    password: Optional[str] = typer.Option(
+        None,
+        "--password",
+        help="Repository password. Uses TIMELESS_PASSWORD env var if not specified.",
+    ),
+    password_file: Optional[str] = typer.Option(
+        None,
+        "--password-file",
+        help="Path to password file. Uses TIMELESS_PASSWORD_FILE env var if not set.",
+    ),
     wizard: bool = typer.Option(
         True,
         "--wizard/--no-wizard",
         help="Run interactive configuration wizard.",
-    )
+    ),
 ) -> None:
     """
     Initialize Timeless with configuration wizard.
@@ -104,55 +120,84 @@ def init(
     This command sets up the repository, stores keys in the Keychain, and creates
     necessary launch configurations.
     """
-    logger.info("Initializing Timeless...")
-    # TODO: Implement initialization logic
+    logger.info("Initializing Timeless repository...")
+
+    # Determine repository path
+    repo_path = repo or os.environ.get("TIMELESS_REPO")
+    if not repo_path:
+        error_msg = (
+            "Repository path not specified. "
+            "Use --repo or set TIMELESS_REPO env var."
+        )
+        logger.error(error_msg)
+        console.print(f"[red]{error_msg}[/red]")
+        raise typer.Exit(1)
+
+    # Determine password or password file
+    pwd = password or os.environ.get("TIMELESS_PASSWORD")
+    pwd_file = password_file or os.environ.get("TIMELESS_PASSWORD_FILE")
+
+    if not pwd and not pwd_file:
+        error_msg = (
+            "Password not specified. "
+            "Use --password, --password-file, or set env vars."
+        )
+        logger.error(error_msg)
+        console.print(f"[red]{error_msg}[/red]")
+        raise typer.Exit(1)
+
+    # Initialize engine
+    try:
+        engine = ResticEngine(
+            repo_path=Path(repo_path),
+            password=pwd,
+            password_file=Path(pwd_file) if pwd_file else None,
+        )
+        engine.initialize_repository()
+    except (ValueError, FileNotFoundError) as e:
+        logger.error(f"Failed to initialize Restic engine: {e}")
+        raise typer.Exit(1) from e
+
     if wizard:
         logger.info("Starting configuration wizard...")
-    else:
-        logger.info("Skipping wizard, using default settings")
 
 
 @app.command()
 def backup(
-    paths: Optional[List[str]] = None,
-    repo: Optional[str] = None,
-    policy_file: Optional[str] = None,
-    password: Optional[str] = None,
-    password_file: Optional[str] = None,
-    tags: Optional[List[str]] = None,
-    no_prune: bool = False,
+    paths: Optional[List[str]] = typer.Argument(
+        None, help="Paths to back up. Defaults to home directory if not specified."
+    ),
+    repo: Optional[str] = typer.Option(
+        None,
+        "--repo",
+        "-r",
+        help="Path to the repository. Uses TIMELESS_REPO env var if not specified.",
+    ),
+    policy_file: Optional[str] = typer.Option(
+        None,
+        "--policy",
+        "-p",
+        help="Path to retention policy file. Uses default policy if not specified.",
+    ),
+    password: Optional[str] = typer.Option(
+        None,
+        "--password",
+        help="Repository password. Uses TIMELESS_PASSWORD env var if not specified.",
+    ),
+    password_file: Optional[str] = typer.Option(
+        None,
+        "--password-file",
+        help="Path to password file. Uses TIMELESS_PASSWORD_FILE env var if not set.",
+    ),
+    tags: Optional[List[str]] = typer.Option(
+        None, "--tag", "-t", help="Tags to apply to the snapshot."
+    ),
+    no_prune: bool = typer.Option(False, "--no-prune", help="Skip pruning after backup."),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose output for backup progress."),
 ) -> None:
     """
     Run backup snapshot, retention pruning, and manifest refresh.
     """
-    # Define typer options inside the function to avoid B008
-    paths = typer.Argument(
-        paths, help="Paths to back up. Defaults to home directory if not specified."
-    )
-    repo = typer.Option(
-        repo,
-        "--repo",
-        "-r",
-        help="Path to the repository. Uses TIMELESS_REPO env var if not specified.",
-    )
-    policy_file = typer.Option(
-        policy_file,
-        "--policy",
-        "-p",
-        help="Path to retention policy file. Uses default policy if not specified.",
-    )
-    password = typer.Option(
-        password,
-        "--password",
-        help="Repository password. Uses TIMELESS_PASSWORD env var if not specified.",
-    )
-    password_file = typer.Option(
-        password_file,
-        "--password-file",
-        help="Path to password file. Uses TIMELESS_PASSWORD_FILE env var if not set.",
-    )
-    tags = typer.Option(tags, "--tag", "-t", help="Tags to apply to the snapshot.")
-    no_prune = typer.Option(no_prune, "--no-prune", help="Skip pruning after backup.")
 
     logger.info("Running backup...")
 
@@ -242,6 +287,7 @@ def backup(
         paths=backup_paths,
         tags=tags or [],
         exclude_patterns=policy.exclude_patterns,
+        verbose=verbose,
     )
 
     if snapshot_id:
