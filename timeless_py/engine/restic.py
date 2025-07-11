@@ -25,8 +25,6 @@ logger = logging.getLogger("timeless.engine.restic")
 class ResticEngine(BaseEngine):
     """Restic backup engine implementation."""
 
-
-
     def __init__(
         self,
         repo_path: Path,
@@ -53,15 +51,21 @@ class ResticEngine(BaseEngine):
         if password and password_file:
             raise ValueError("Only one of password or password_file can be provided")
 
-    def initialize_repository(self) -> None:
+    def init(self, repo_path: Path, password: str) -> bool:
         """Initializes a new restic repository."""
+        self.repo_path = repo_path
+        self.password = password
+        self.password_file = None
         logger.info(f"Initializing repository at {self.repo_path}")
         try:
-            self._run_command(["init"])
-            logger.info("Repository initialized successfully.")
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to initialize repository: {e.stderr}")
-            raise
+            returncode, _, stderr = self._run_command(["init"], check=False)
+            if returncode == 0:
+                return True
+            logger.error(f"Failed to initialize repository: {stderr}")
+            return False
+        except Exception as e:
+            logger.error(f"Failed to initialize repository at {self.repo_path}: {e}")
+            return False
 
     def _get_env(self) -> Dict[str, str]:
         """Get the environment variables for Restic commands."""
@@ -76,7 +80,11 @@ class ResticEngine(BaseEngine):
         return env
 
     def _run_command(
-        self, args: List[str], capture_output: bool = True, check: bool = True, stream_output: bool = False
+        self,
+        args: List[str],
+        capture_output: bool = True,
+        check: bool = True,
+        stream_output: bool = False,
     ) -> Tuple[int, str, str]:
         """
         Run a Restic command.
@@ -114,36 +122,6 @@ class ResticEngine(BaseEngine):
             if check:
                 raise
             return e.returncode, e.stdout, e.stderr
-
-    def init(self, repo_path: Path, password: str) -> bool:
-        """
-        Initialize a new Restic repository.
-
-        Args:
-            repo_path: Path to the repository
-            password: Repository password
-
-        Returns:
-            True if successful, False otherwise
-        """
-        # Save the new repo path and password
-        self.repo_path = repo_path
-        self.password = password
-        self.password_file = None
-
-        try:
-            returncode, stdout, stderr = self._run_command(["init"], check=False)
-            if returncode == 0:
-                logger.info(f"Initialized repository at {repo_path}")
-                return True
-            else:
-                logger.error(
-                    f"Failed to initialize repository at {repo_path}: {stderr}"
-                )
-                return False
-        except Exception as e:
-            logger.error(f"Failed to initialize repository at {repo_path}: {e}")
-            return False
 
     def backup(
         self,
@@ -347,14 +325,9 @@ class ResticEngine(BaseEngine):
             args.extend(["--include", path])
 
         try:
-            # When verbose is True, stdout is streamed and not captured.
-            # We also don't use --json, so we can't parse the snapshot ID.
-            capture_output = not verbose
-            returncode, stdout, stderr = self._run_command(
-                args, stream_output=verbose, capture_output=capture_output
-            )
+            returncode, stdout, stderr = self._run_command(args)
 
-            if returncode == 0 and stdout and not verbose:
+            if returncode == 0 and stdout:
                 logger.info(f"Restored {len(paths)} paths from snapshot {snapshot_id}")
                 return True
             else:

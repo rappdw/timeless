@@ -10,7 +10,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
-from typing import List, Optional
+from typing import Annotated, List, Optional
 
 import typer
 from rich.console import Console
@@ -126,8 +126,7 @@ def init(
     repo_path = repo or os.environ.get("TIMELESS_REPO")
     if not repo_path:
         error_msg = (
-            "Repository path not specified. "
-            "Use --repo or set TIMELESS_REPO env var."
+            "Repository path not specified. " "Use --repo or set TIMELESS_REPO env var."
         )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
@@ -138,22 +137,29 @@ def init(
     pwd_file = password_file or os.environ.get("TIMELESS_PASSWORD_FILE")
 
     if not pwd and not pwd_file:
-        error_msg = (
-            "Password not specified. "
-            "Use --password, --password-file, or set env vars."
+        logger.error(
+            "Password must be provided via --password, --password-file, "
+            "TIMELESS_PASSWORD, or TIMELESS_PASSWORD_FILE env vars."
         )
-        logger.error(error_msg)
-        console.print(f"[red]{error_msg}[/red]")
         raise typer.Exit(1)
 
-    # Initialize engine
+    # The init command requires a password, not a password file.
+    if not pwd:
+        logger.error(
+            "A password must be provided via --password or TIMELESS_PASSWORD for init."
+        )
+        raise typer.Exit(1)
+
+    # This assertion is for mypy to confirm pwd is not None.
+    assert pwd is not None
+
     try:
         engine = ResticEngine(
             repo_path=Path(repo_path),
             password=pwd,
             password_file=Path(pwd_file) if pwd_file else None,
         )
-        engine.initialize_repository()
+        engine.init(repo_path=Path(repo_path), password=pwd)
     except (ValueError, FileNotFoundError) as e:
         logger.error(f"Failed to initialize Restic engine: {e}")
         raise typer.Exit(1) from e
@@ -164,36 +170,55 @@ def init(
 
 @app.command()
 def backup(
-    paths: Optional[List[str]] = typer.Argument(
-        None, help="Paths to back up. Defaults to home directory if not specified."
-    ),
-    repo: Optional[str] = typer.Option(
-        None,
-        "--repo",
-        "-r",
-        help="Path to the repository. Uses TIMELESS_REPO env var if not specified.",
-    ),
-    policy_file: Optional[str] = typer.Option(
-        None,
-        "--policy",
-        "-p",
-        help="Path to retention policy file. Uses default policy if not specified.",
-    ),
-    password: Optional[str] = typer.Option(
-        None,
-        "--password",
-        help="Repository password. Uses TIMELESS_PASSWORD env var if not specified.",
-    ),
-    password_file: Optional[str] = typer.Option(
-        None,
-        "--password-file",
-        help="Path to password file. Uses TIMELESS_PASSWORD_FILE env var if not set.",
-    ),
-    tags: Optional[List[str]] = typer.Option(
-        None, "--tag", "-t", help="Tags to apply to the snapshot."
-    ),
-    no_prune: bool = typer.Option(False, "--no-prune", help="Skip pruning after backup."),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose output for backup progress."),
+    paths: Annotated[
+        Optional[List[str]],
+        typer.Argument(
+            help="Paths to back up. Defaults to home directory if not specified."
+        ),
+    ] = None,
+    repo: Annotated[
+        Optional[str],
+        typer.Option(
+            "--repo",
+            "-r",
+            help="Path to the repository. Uses TIMELESS_REPO env var if not set.",
+        ),
+    ] = None,
+    policy_file: Annotated[
+        Optional[str],
+        typer.Option(
+            "--policy",
+            "-p",
+            help="Path to retention policy file. Uses default policy if not specified.",
+        ),
+    ] = None,
+    password: Annotated[
+        Optional[str],
+        typer.Option(
+            "--password",
+            help="Repository password. Uses TIMELESS_PASSWORD env var if not set.",
+        ),
+    ] = None,
+    password_file: Annotated[
+        Optional[str],
+        typer.Option(
+            "--password-file",
+            help="Path to password file (uses $TIMELESS_PASSWORD_FILE).",
+        ),
+    ] = None,
+    tags: Annotated[
+        Optional[List[str]],
+        typer.Option("--tag", "-t", help="Tags to apply to the snapshot."),
+    ] = None,
+    no_prune: Annotated[
+        bool, typer.Option("--no-prune", help="Skip pruning after backup.")
+    ] = False,
+    verbose: Annotated[
+        bool,
+        typer.Option(
+            "--verbose", "-v", help="Enable verbose output for backup progress."
+        ),
+    ] = False,
 ) -> None:
     """
     Run backup snapshot, retention pruning, and manifest refresh.
@@ -728,14 +753,19 @@ def brew_replay(
             "Repository path not specified. Use --repo or set TIMELESS_REPO env var."
         )
         raise typer.Exit(1)
+        logger.error(
+            "Repository path must be provided via --repo or TIMELESS_REPO env var."
+        )
+        raise typer.Exit(1)
 
     # Determine password or password file
     pwd = password or os.environ.get("TIMELESS_PASSWORD")
     pwd_file = password_file or os.environ.get("TIMELESS_PASSWORD_FILE")
 
     if not pwd and not pwd_file:
-        log_error(
-            "Password not specified. Use --password, --password-file, or set env vars."
+        logger.error(
+            "Password must be provided via --password, --password-file, "
+            "TIMELESS_PASSWORD, or TIMELESS_PASSWORD_FILE env vars."
         )
         raise typer.Exit(1)
 
