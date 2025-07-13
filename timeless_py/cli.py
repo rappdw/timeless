@@ -11,8 +11,9 @@ import os
 import sys
 import tempfile
 from pathlib import Path
-from typing import Annotated, List, Optional
+from typing import Annotated, List, Optional, Tuple
 
+import keyring
 import typer
 from rich.console import Console
 from rich.logging import RichHandler
@@ -40,11 +41,44 @@ logging.basicConfig(
 )
 logger = logging.getLogger("timeless")
 
+# Define service name for keyring
+SERVICE_NAME = "timeless-py"
+
 # Create the Typer app
 app = typer.Typer(
     help="Time Machine-style personal backup orchestrated by Python & uv.",
     add_completion=False,
 )
+
+
+def get_repo_credentials(
+    repo: Optional[str],
+    password: Optional[str],
+    password_file: Optional[str],
+) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """
+    Get repository credentials from args, env vars, or keyring.
+
+    The order of precedence is:
+    1. Command-line arguments
+    2. Environment variables
+    3. Keyring
+    """
+    repo_path = repo or os.environ.get("TIMELESS_REPO")
+    pwd = password or os.environ.get("TIMELESS_PASSWORD")
+    pwd_file = password_file or os.environ.get("TIMELESS_PASSWORD_FILE")
+
+    if not repo_path:
+        repo_path = keyring.get_password(SERVICE_NAME, "TIMELESS_REPO")
+        if repo_path:
+            logger.debug("Loaded repository path from keyring.")
+
+    if not pwd and not pwd_file:
+        pwd = keyring.get_password(SERVICE_NAME, "TIMELESS_PASSWORD")
+        if pwd:
+            logger.debug("Loaded password from keyring.")
+
+    return repo_path, pwd, pwd_file
 
 
 def log_error(message: str) -> None:
@@ -123,25 +157,15 @@ def init(
     """
     logger.info("Initializing Timeless repository...")
 
-    # Determine repository path
-    repo_path = repo or os.environ.get("TIMELESS_REPO")
+    repo_path, pwd, pwd_file = get_repo_credentials(repo, password, password_file)
+
     if not repo_path:
         error_msg = (
-            "Repository path not specified. " "Use --repo or set TIMELESS_REPO env var."
+            "Repository path not specified. "
+            "Use --repo, set TIMELESS_REPO env var, or run init first."
         )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
-        raise typer.Exit(1)
-
-    # Determine password or password file
-    pwd = password or os.environ.get("TIMELESS_PASSWORD")
-    pwd_file = password_file or os.environ.get("TIMELESS_PASSWORD_FILE")
-
-    if not pwd and not pwd_file:
-        logger.error(
-            "Password must be provided via --password, --password-file, "
-            "TIMELESS_PASSWORD, or TIMELESS_PASSWORD_FILE env vars."
-        )
         raise typer.Exit(1)
 
     # The init command requires a password, not a password file.
@@ -160,7 +184,15 @@ def init(
             password=pwd,
             password_file=Path(pwd_file) if pwd_file else None,
         )
-        engine.init(repo_path=Path(repo_path), password=pwd)
+        if not engine.init(repo_path=Path(repo_path), password=pwd):
+            raise typer.Exit(1)
+
+        # Save credentials to keyring on successful initialization
+        logger.info("Saving credentials to system keychain...")
+        keyring.set_password(SERVICE_NAME, "TIMELESS_REPO", repo_path)
+        keyring.set_password(SERVICE_NAME, "TIMELESS_PASSWORD", pwd)
+        logger.info("Credentials saved successfully.")
+
     except (ValueError, FileNotFoundError) as e:
         logger.error(f"Failed to initialize Restic engine: {e}")
         raise typer.Exit(1) from e
@@ -231,24 +263,21 @@ def backup(
 
     logger.info("Running backup...")
 
-    # Determine repository path
-    repo_path = repo or os.environ.get("TIMELESS_REPO")
+    repo_path, pwd, pwd_file = get_repo_credentials(repo, password, password_file)
+
     if not repo_path:
         error_msg = (
-            "Repository path not specified. " "Use --repo or set TIMELESS_REPO env var."
+            "Repository path not specified. "
+            "Use --repo, set TIMELESS_REPO env var, or run init first."
         )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
         raise typer.Exit(1)
 
-    # Determine password or password file
-    pwd = password or os.environ.get("TIMELESS_PASSWORD")
-    pwd_file = password_file or os.environ.get("TIMELESS_PASSWORD_FILE")
-
     if not pwd and not pwd_file:
         error_msg = (
             "Password not specified. "
-            "Use --password, --password-file, or set env vars."
+            "Use --password, --password-file, set env vars, or run init first."
         )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
@@ -431,24 +460,21 @@ def list_snapshots(
     """
     logger.info("Listing snapshots...")
 
-    # Determine repository path
-    repo_path = repo or os.environ.get("TIMELESS_REPO")
+    repo_path, pwd, pwd_file = get_repo_credentials(repo, password, password_file)
+
     if not repo_path:
         error_msg = (
-            "Repository path not specified. " "Use --repo or set TIMELESS_REPO env var."
+            "Repository path not specified. "
+            "Use --repo, set TIMELESS_REPO env var, or run init first."
         )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
         raise typer.Exit(1)
 
-    # Determine password or password file
-    pwd = password or os.environ.get("TIMELESS_PASSWORD")
-    pwd_file = password_file or os.environ.get("TIMELESS_PASSWORD_FILE")
-
     if not pwd and not pwd_file:
         error_msg = (
             "Password not specified. "
-            "Use --password, --password-file, or set env vars."
+            "Use --password, --password-file, set env vars, or run init first."
         )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
@@ -536,24 +562,21 @@ def mount(
     """
     logger.info(f"Mounting snapshot at {target}...")
 
-    # Determine repository path
-    repo_path = repo or os.environ.get("TIMELESS_REPO")
+    repo_path, pwd, pwd_file = get_repo_credentials(repo, password, password_file)
+
     if not repo_path:
         error_msg = (
-            "Repository path not specified. " "Use --repo or set TIMELESS_REPO env var."
+            "Repository path not specified. "
+            "Use --repo, set TIMELESS_REPO env var, or run init first."
         )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
         raise typer.Exit(1)
 
-    # Determine password or password file
-    pwd = password or os.environ.get("TIMELESS_PASSWORD")
-    pwd_file = password_file or os.environ.get("TIMELESS_PASSWORD_FILE")
-
     if not pwd and not pwd_file:
         error_msg = (
             "Password not specified. "
-            "Use --password, --password-file, or set env vars."
+            "Use --password, --password-file, set env vars, or run init first."
         )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
@@ -640,24 +663,21 @@ def restore(
     target_display = target if target else "current directory"
     logger.info(f"Restoring {path} from snapshot {snapshot} to {target_display}...")
 
-    # Determine repository path
-    repo_path = repo or os.environ.get("TIMELESS_REPO")
+    repo_path, pwd, pwd_file = get_repo_credentials(repo, password, password_file)
+
     if not repo_path:
         error_msg = (
-            "Repository path not specified. " "Use --repo or set TIMELESS_REPO env var."
+            "Repository path not specified. "
+            "Use --repo, set TIMELESS_REPO env var, or run init first."
         )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
         raise typer.Exit(1)
 
-    # Determine password or password file
-    pwd = password or os.environ.get("TIMELESS_PASSWORD")
-    pwd_file = password_file or os.environ.get("TIMELESS_PASSWORD_FILE")
-
     if not pwd and not pwd_file:
         error_msg = (
             "Password not specified. "
-            "Use --password, --password-file, or set env vars."
+            "Use --password, --password-file, set env vars, or run init first."
         )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
@@ -716,24 +736,21 @@ def check(
     """
     logger.info("Running repository integrity check...")
 
-    # Determine repository path
-    repo_path = repo or os.environ.get("TIMELESS_REPO")
+    repo_path, pwd, pwd_file = get_repo_credentials(repo, password, password_file)
+
     if not repo_path:
         error_msg = (
-            "Repository path not specified. " "Use --repo or set TIMELESS_REPO env var."
+            "Repository path not specified. "
+            "Use --repo, set TIMELESS_REPO env var, or run init first."
         )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
         raise typer.Exit(1)
 
-    # Determine password or password file
-    pwd = password or os.environ.get("TIMELESS_PASSWORD")
-    pwd_file = password_file or os.environ.get("TIMELESS_PASSWORD_FILE")
-
     if not pwd and not pwd_file:
         error_msg = (
             "Password not specified. "
-            "Use --password, --password-file, or set env vars."
+            "Use --password, --password-file, set env vars, or run init first."
         )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
@@ -787,11 +804,11 @@ def brew_replay(
     """
     logger.info("Starting software replay from manifests...")
 
-    # Determine repository path
-    repo_path = repo or os.environ.get("TIMELESS_REPO")
+    repo_path, _, _ = get_repo_credentials(repo, None, None)
     if not repo_path:
         log_error(
-            "Repository path not specified. Use --repo or set TIMELESS_REPO env var."
+            "Repository path must be provided via --repo, "
+            "TIMELESS_REPO env var, or by running init."
         )
         raise typer.Exit(1)
         logger.error(
