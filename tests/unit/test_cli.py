@@ -261,17 +261,21 @@ def test_error_handling_no_repo(runner: CliRunner) -> None:
 
 
 def test_error_handling_no_password(runner: CliRunner) -> None:
-    """Test error handling when no password is specified."""
-    # Mock the find_accessible_repo function to return None
-    with patch("timeless_py.cli.find_accessible_repo", return_value=None):
-        # Set environment variables for the test
-        with patch.dict(os.environ, {"TIMELESS_REPO": "/tmp/test-repo"}):
-            # Run the backup command without a password
+    """Test error handling when no repository is accessible."""
+    # Mock get_repo_credentials to return repo paths and a password
+    # so that the code reaches the find_accessible_repo check
+    repo_paths = ["/tmp/test-repo"]
+    pwd, pwd_file = "mock-password", None
+    mock_return = (repo_paths, pwd, pwd_file)
+    with patch("timeless_py.cli.get_repo_credentials", return_value=mock_return):
+        # Mock find_accessible_repo to return None (repository not accessible)
+        with patch("timeless_py.cli.find_accessible_repo", return_value=None):
+            # Run the backup command
             result = runner.invoke(app, ["backup", "/home/user/docs"])
 
-        # Check that the command failed
-        assert result.exit_code == 1
-        assert "No accessible repositories found" in result.stdout
+            # Check that the command failed
+            assert result.exit_code == 1
+            assert "No accessible repositories found" in result.stdout
 
 
 def test_get_repo_credentials_semicolon_separated() -> None:
