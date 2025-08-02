@@ -53,7 +53,7 @@ class ResticEngine(BaseEngine):
 
     def repository_exists(self) -> bool:
         """
-        Check if a repository exists by directly checking the filesystem or SFTP location.
+        Check if a repository exists by directly checking the filesystem or SFTP.
 
         Returns:
             bool: True if the repository exists, False otherwise
@@ -73,7 +73,7 @@ class ResticEngine(BaseEngine):
         else:
             # Handle filesystem repositories
             try:
-                # For filesystem repos, check if the directory exists and contains a config file
+                # Check if directory exists and contains a config file
                 repo_dir = Path(repo_path_str)
                 config_file = repo_dir / "config"
                 return config_file.exists()

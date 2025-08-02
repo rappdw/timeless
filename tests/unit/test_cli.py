@@ -364,7 +364,7 @@ def test_init_command_multi_target(runner: CliRunner) -> None:
         mock_engine.repository_exists.side_effect = [
             True,  # First repo exists
             False,  # Second repo doesn't exist
-            False,  # Third repo doesn't exist (would have timed out in old implementation)
+            False,  # Third repo doesn't exist (timed out in old implementation)
         ]
         # Both second and third repos will attempt initialization
         # First one succeeds, second one fails
