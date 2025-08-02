@@ -11,8 +11,9 @@ import os
 import sys
 import tempfile
 from pathlib import Path
-from typing import Annotated, List, Optional
+from typing import Annotated, List, Optional, Tuple
 
+import keyring
 import typer
 from rich.console import Console
 from rich.logging import RichHandler
@@ -40,6 +41,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger("timeless")
 
+# Define service name for keyring
+SERVICE_NAME = "timeless-py"
+
 # Create the Typer app
 app = typer.Typer(
     help="Time Machine-style personal backup orchestrated by Python & uv.",
@@ -47,10 +51,94 @@ app = typer.Typer(
 )
 
 
+def get_repo_credentials(
+    repo: Optional[str],
+    password: Optional[str],
+    password_file: Optional[str],
+) -> Tuple[List[str], Optional[str], Optional[str]]:
+    """
+    Get repository credentials from args, env vars, or keyring.
+
+    The order of precedence is:
+    1. Command-line arguments
+    2. Environment variables
+    3. Keyring
+
+    Returns:
+        Tuple of (repo_paths, password, password_file)
+        repo_paths is a list of repository paths, split by semicolons
+    """
+    repo_path = repo or os.environ.get("TIMELESS_REPO")
+    pwd = password or os.environ.get("TIMELESS_PASSWORD")
+    pwd_file = password_file or os.environ.get("TIMELESS_PASSWORD_FILE")
+
+    if not repo_path:
+        repo_path = keyring.get_password("TIMELESS_REPO", SERVICE_NAME)
+        if repo_path:
+            logger.debug("Loaded repository path from keyring.")
+
+    if not pwd and not pwd_file:
+        pwd = keyring.get_password("TIMELESS_PASSWORD", SERVICE_NAME)
+        if pwd:
+            logger.debug("Loaded password from keyring.")
+
+    # Split repo_path by semicolons if it exists
+    repo_paths = []
+    if repo_path:
+        repo_paths = [path.strip() for path in repo_path.split(";") if path.strip()]
+        if len(repo_paths) > 1:
+            logger.debug(f"Found {len(repo_paths)} repository targets")
+
+    return repo_paths, pwd, pwd_file
+
+
 def log_error(message: str) -> None:
     """Log an error message to both logger and console."""
     logger.error(message)
     console.print(f"[red]{message}[/red]")
+    return None
+
+
+def find_accessible_repo(
+    repo_paths: List[str], pwd: Optional[str], pwd_file: Optional[str]
+) -> Optional[Tuple[str, ResticEngine]]:
+    """
+    Find the first accessible repository from a list of repository paths.
+
+    Args:
+        repo_paths: List of repository paths to try
+        pwd: Repository password
+        pwd_file: Path to password file
+
+    Returns:
+        Tuple of (repo_path, engine) if an accessible repository is found,
+        None otherwise
+    """
+    if not repo_paths:
+        return None
+
+    last_error = None
+    for repo_path in repo_paths:
+        logger.info(f"Trying repository target: {repo_path}")
+        try:
+            engine = ResticEngine(
+                repo_path=Path(repo_path),
+                password=pwd,
+                password_file=Path(pwd_file) if pwd_file else None,
+            )
+            # Check if the repository is accessible
+            engine.snapshots()
+            logger.info(f"Using repository: {repo_path}")
+            return repo_path, engine
+        except Exception as e:
+            logger.warning(f"Repository {repo_path} is not accessible: {e}")
+            last_error = e
+            continue
+
+    error_msg = "No accessible repositories found"
+    if last_error:
+        error_msg += f": {last_error}"
+    logger.error(error_msg)
     return None
 
 
@@ -97,7 +185,8 @@ def init(
         None,
         "--repo",
         "-r",
-        help="Path to the repository. Uses TIMELESS_REPO env var if not specified.",
+        help="Path to the repository. Uses TIMELESS_REPO env var if not specified. "
+        "Can be semicolon-separated list.",
     ),
     password: Optional[str] = typer.Option(
         None,
@@ -123,25 +212,15 @@ def init(
     """
     logger.info("Initializing Timeless repository...")
 
-    # Determine repository path
-    repo_path = repo or os.environ.get("TIMELESS_REPO")
-    if not repo_path:
+    repo_paths, pwd, pwd_file = get_repo_credentials(repo, password, password_file)
+
+    if not repo_paths:
         error_msg = (
-            "Repository path not specified. " "Use --repo or set TIMELESS_REPO env var."
+            "Repository path not specified. "
+            "Use --repo, set TIMELESS_REPO env var, or run init first."
         )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
-        raise typer.Exit(1)
-
-    # Determine password or password file
-    pwd = password or os.environ.get("TIMELESS_PASSWORD")
-    pwd_file = password_file or os.environ.get("TIMELESS_PASSWORD_FILE")
-
-    if not pwd and not pwd_file:
-        logger.error(
-            "Password must be provided via --password, --password-file, "
-            "TIMELESS_PASSWORD, or TIMELESS_PASSWORD_FILE env vars."
-        )
         raise typer.Exit(1)
 
     # The init command requires a password, not a password file.
@@ -154,16 +233,82 @@ def init(
     # This assertion is for mypy to confirm pwd is not None.
     assert pwd is not None
 
-    try:
-        engine = ResticEngine(
-            repo_path=Path(repo_path),
-            password=pwd,
-            password_file=Path(pwd_file) if pwd_file else None,
-        )
-        engine.init(repo_path=Path(repo_path), password=pwd)
-    except (ValueError, FileNotFoundError) as e:
-        logger.error(f"Failed to initialize Restic engine: {e}")
-        raise typer.Exit(1) from e
+    # Track if at least one repository was successfully initialized
+    any_success = False
+    errors = []
+
+    # Try to initialize each repository in the list
+    for repo_path in repo_paths:
+        logger.info(f"Processing repository target: {repo_path}")
+        try:
+            # Create a new engine for each repository
+            engine = ResticEngine(
+                repo_path=Path(repo_path),
+                password=pwd,
+                password_file=Path(pwd_file) if pwd_file else None,
+            )
+
+            # Check if repository already exists using direct filesystem or SFTP check
+            if engine.repository_exists():
+                message = (
+                    f"Repository already exists at {repo_path}, skipping initialization"
+                )
+                logger.info(message)
+                # Print to stdout for test detection
+                typer.echo(message)
+                any_success = True
+                continue
+            else:
+                # Repository doesn't exist, proceed with initialization
+                logger.info(
+                    f"Repository does not exist at {repo_path}, "
+                    f"proceeding with initialization"
+                )
+
+            # Initialize the repository
+            if engine.init(repo_path=Path(repo_path), password=pwd):
+                message = f"Successfully initialized repository at {repo_path}"
+                logger.info(message)
+                # Print to stdout for test detection
+                typer.echo(message)
+                any_success = True
+            else:
+                error_msg = f"Failed to initialize repository at {repo_path}"
+                logger.error(error_msg)
+                errors.append(error_msg)
+
+        except (ValueError, FileNotFoundError) as e:
+            error_msg = f"Error with repository {repo_path}: {e}"
+            logger.error(error_msg)
+            errors.append(error_msg)
+            continue
+
+    # If at least one repository was initialized successfully, save credentials
+    if any_success:
+        # Save credentials to keyring on successful initialization
+        logger.info("Saving credentials to system keychain...")
+        # Save the original semicolon-separated string
+        repo_str = ";".join(repo_paths)
+        keyring.set_password(SERVICE_NAME, "TIMELESS_REPO", repo_str)
+        keyring.set_password(SERVICE_NAME, "TIMELESS_PASSWORD", pwd)
+        logger.info("Credentials saved successfully.")
+
+        if errors:
+            warning_msg = "Some repositories had initialization errors:"
+            logger.warning(warning_msg)
+            # Echo to stdout for test detection
+            typer.echo(warning_msg)
+            for error in errors:
+                error_detail = f"  - {error}"
+                logger.warning(error_detail)
+                # Echo to stdout for test detection
+                typer.echo(error_detail)
+    else:
+        error_msg = "Failed to initialize any repositories"
+        logger.error(error_msg)
+        for error in errors:
+            logger.error(f"  - {error}")
+        raise typer.Exit(1)
 
     if wizard:
         logger.info("Starting configuration wizard...")
@@ -231,24 +376,21 @@ def backup(
 
     logger.info("Running backup...")
 
-    # Determine repository path
-    repo_path = repo or os.environ.get("TIMELESS_REPO")
-    if not repo_path:
+    repo_paths, pwd, pwd_file = get_repo_credentials(repo, password, password_file)
+
+    if not repo_paths:
         error_msg = (
-            "Repository path not specified. " "Use --repo or set TIMELESS_REPO env var."
+            "Repository path not specified. "
+            "Use --repo, set TIMELESS_REPO env var, or run init first."
         )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
         raise typer.Exit(1)
 
-    # Determine password or password file
-    pwd = password or os.environ.get("TIMELESS_PASSWORD")
-    pwd_file = password_file or os.environ.get("TIMELESS_PASSWORD_FILE")
-
     if not pwd and not pwd_file:
         error_msg = (
             "Password not specified. "
-            "Use --password, --password-file, or set env vars."
+            "Use --password, --password-file, set env vars, or run init first."
         )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
@@ -263,16 +405,13 @@ def backup(
         logger.info("Using default retention policy")
         policy = RetentionPolicy()
 
-    # Initialize engine
-    try:
-        engine = ResticEngine(
-            repo_path=Path(repo_path),
-            password=pwd,
-            password_file=Path(pwd_file) if pwd_file else None,
-        )
-    except ValueError as e:
-        logger.error(f"Failed to initialize Restic engine: {e}")
-        raise typer.Exit(1) from e
+    # Find the first accessible repository
+    result = find_accessible_repo(repo_paths, pwd, pwd_file)
+    if result is None:
+        console.print("[red]No accessible repositories found[/red]")
+        raise typer.Exit(1)
+
+    repo_path, engine = result
 
     # Manifest refresh
     with tempfile.TemporaryDirectory(prefix="timeless-manifests-") as temp_dir_str:
@@ -431,39 +570,33 @@ def list_snapshots(
     """
     logger.info("Listing snapshots...")
 
-    # Determine repository path
-    repo_path = repo or os.environ.get("TIMELESS_REPO")
-    if not repo_path:
+    repo_paths, pwd, pwd_file = get_repo_credentials(repo, password, password_file)
+
+    if not repo_paths:
         error_msg = (
-            "Repository path not specified. " "Use --repo or set TIMELESS_REPO env var."
+            "Repository path not specified. "
+            "Use --repo, set TIMELESS_REPO env var, or run init first."
         )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
         raise typer.Exit(1)
-
-    # Determine password or password file
-    pwd = password or os.environ.get("TIMELESS_PASSWORD")
-    pwd_file = password_file or os.environ.get("TIMELESS_PASSWORD_FILE")
 
     if not pwd and not pwd_file:
         error_msg = (
             "Password not specified. "
-            "Use --password, --password-file, or set env vars."
+            "Use --password, --password-file, set env vars, or run init first."
         )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
         raise typer.Exit(1)
 
-    # Initialize engine
-    try:
-        engine = ResticEngine(
-            repo_path=Path(repo_path),
-            password=pwd,
-            password_file=Path(pwd_file) if pwd_file else None,
-        )
-    except (ValueError, FileNotFoundError) as e:
-        logger.error(f"Failed to initialize Restic engine: {e}")
-        raise typer.Exit(1) from e
+    # Find the first accessible repository
+    result = find_accessible_repo(repo_paths, pwd, pwd_file)
+    if result is None:
+        console.print("[red]No accessible repositories found[/red]")
+        raise typer.Exit(1)
+
+    repo_path, engine = result
 
     # Get snapshots
     snapshots = engine.snapshots()
@@ -536,39 +669,33 @@ def mount(
     """
     logger.info(f"Mounting snapshot at {target}...")
 
-    # Determine repository path
-    repo_path = repo or os.environ.get("TIMELESS_REPO")
-    if not repo_path:
+    repo_paths, pwd, pwd_file = get_repo_credentials(repo, password, password_file)
+
+    if not repo_paths:
         error_msg = (
-            "Repository path not specified. " "Use --repo or set TIMELESS_REPO env var."
+            "Repository path not specified. "
+            "Use --repo, set TIMELESS_REPO env var, or run init first."
         )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
         raise typer.Exit(1)
-
-    # Determine password or password file
-    pwd = password or os.environ.get("TIMELESS_PASSWORD")
-    pwd_file = password_file or os.environ.get("TIMELESS_PASSWORD_FILE")
 
     if not pwd and not pwd_file:
         error_msg = (
             "Password not specified. "
-            "Use --password, --password-file, or set env vars."
+            "Use --password, --password-file, set env vars, or run init first."
         )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
         raise typer.Exit(1)
 
-    # Initialize engine
-    try:
-        engine = ResticEngine(
-            repo_path=Path(repo_path),
-            password=pwd,
-            password_file=Path(pwd_file) if pwd_file else None,
-        )
-    except ValueError as e:
-        logger.error(f"Failed to initialize Restic engine: {e}")
-        raise typer.Exit(1) from e
+    # Find the first accessible repository
+    result = find_accessible_repo(repo_paths, pwd, pwd_file)
+    if result is None:
+        console.print("[red]No accessible repositories found[/red]")
+        raise typer.Exit(1)
+
+    repo_path, engine = result
 
     # Prepare target path
     target_path = Path(target).expanduser()
@@ -640,39 +767,33 @@ def restore(
     target_display = target if target else "current directory"
     logger.info(f"Restoring {path} from snapshot {snapshot} to {target_display}...")
 
-    # Determine repository path
-    repo_path = repo or os.environ.get("TIMELESS_REPO")
-    if not repo_path:
+    repo_paths, pwd, pwd_file = get_repo_credentials(repo, password, password_file)
+
+    if not repo_paths:
         error_msg = (
-            "Repository path not specified. " "Use --repo or set TIMELESS_REPO env var."
+            "Repository path not specified. "
+            "Use --repo, set TIMELESS_REPO env var, or run init first."
         )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
         raise typer.Exit(1)
-
-    # Determine password or password file
-    pwd = password or os.environ.get("TIMELESS_PASSWORD")
-    pwd_file = password_file or os.environ.get("TIMELESS_PASSWORD_FILE")
 
     if not pwd and not pwd_file:
         error_msg = (
             "Password not specified. "
-            "Use --password, --password-file, or set env vars."
+            "Use --password, --password-file, set env vars, or run init first."
         )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
         raise typer.Exit(1)
 
-    # Initialize engine
-    try:
-        engine = ResticEngine(
-            repo_path=Path(repo_path),
-            password=pwd,
-            password_file=Path(pwd_file) if pwd_file else None,
-        )
-    except ValueError as e:
-        logger.error(f"Failed to initialize Restic engine: {e}")
-        raise typer.Exit(1) from e
+    # Find the first accessible repository
+    result = find_accessible_repo(repo_paths, pwd, pwd_file)
+    if result is None:
+        console.print("[red]No accessible repositories found[/red]")
+        raise typer.Exit(1)
+
+    repo_path, engine = result
 
     # Prepare target path
     target_path = Path(target).expanduser() if target else Path.cwd()
@@ -716,39 +837,33 @@ def check(
     """
     logger.info("Running repository integrity check...")
 
-    # Determine repository path
-    repo_path = repo or os.environ.get("TIMELESS_REPO")
-    if not repo_path:
+    repo_paths, pwd, pwd_file = get_repo_credentials(repo, password, password_file)
+
+    if not repo_paths:
         error_msg = (
-            "Repository path not specified. " "Use --repo or set TIMELESS_REPO env var."
+            "Repository path not specified. "
+            "Use --repo, set TIMELESS_REPO env var, or run init first."
         )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
         raise typer.Exit(1)
-
-    # Determine password or password file
-    pwd = password or os.environ.get("TIMELESS_PASSWORD")
-    pwd_file = password_file or os.environ.get("TIMELESS_PASSWORD_FILE")
 
     if not pwd and not pwd_file:
         error_msg = (
             "Password not specified. "
-            "Use --password, --password-file, or set env vars."
+            "Use --password, --password-file, set env vars, or run init first."
         )
         logger.error(error_msg)
         console.print(f"[red]{error_msg}[/red]")
         raise typer.Exit(1)
 
-    # Initialize engine
-    try:
-        engine = ResticEngine(
-            repo_path=Path(repo_path),
-            password=pwd,
-            password_file=Path(pwd_file) if pwd_file else None,
-        )
-    except ValueError as e:
-        logger.error(f"Failed to initialize Restic engine: {e}")
-        raise typer.Exit(1) from e
+    # Find the first accessible repository
+    result = find_accessible_repo(repo_paths, pwd, pwd_file)
+    if result is None:
+        console.print("[red]No accessible repositories found[/red]")
+        raise typer.Exit(1)
+
+    repo_path, engine = result
 
     # Run check
     logger.info("Checking repository integrity...")
@@ -787,15 +902,11 @@ def brew_replay(
     """
     logger.info("Starting software replay from manifests...")
 
-    # Determine repository path
-    repo_path = repo or os.environ.get("TIMELESS_REPO")
-    if not repo_path:
+    repo_paths, _, _ = get_repo_credentials(repo, None, None)
+    if not repo_paths:
         log_error(
-            "Repository path not specified. Use --repo or set TIMELESS_REPO env var."
-        )
-        raise typer.Exit(1)
-        logger.error(
-            "Repository path must be provided via --repo or TIMELESS_REPO env var."
+            "Repository path must be provided via --repo, "
+            "TIMELESS_REPO env var, or by running init."
         )
         raise typer.Exit(1)
 
@@ -810,16 +921,13 @@ def brew_replay(
         )
         raise typer.Exit(1)
 
-    # Initialize engine
-    try:
-        engine = ResticEngine(
-            repo_path=Path(repo_path),
-            password=pwd,
-            password_file=Path(pwd_file) if pwd_file else None,
-        )
-    except ValueError as e:
-        log_error(f"Failed to initialize Restic engine: {e}")
-        raise typer.Exit(1) from e
+    # Find the first accessible repository
+    result = find_accessible_repo(repo_paths, pwd, pwd_file)
+    if result is None:
+        console.print("[red]No accessible repositories found[/red]")
+        raise typer.Exit(1)
+
+    repo_path, engine = result
 
     # Find the latest manifest snapshot
     latest_manifest = find_latest_manifest_snapshot(engine)
