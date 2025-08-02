@@ -51,6 +51,36 @@ class ResticEngine(BaseEngine):
         if password and password_file:
             raise ValueError("Only one of password or password_file can be provided")
 
+    def repository_exists(self) -> bool:
+        """
+        Check if a repository exists by directly checking the filesystem or SFTP location.
+
+        Returns:
+            bool: True if the repository exists, False otherwise
+        """
+        repo_path_str = str(self.repo_path)
+
+        # Handle SFTP repositories
+        if repo_path_str.startswith("sftp:"):
+            try:
+                # Use a simple command to check if the repo exists via SFTP
+                # The 'cat config' command will succeed only if the repository exists
+                returncode, _, _ = self._run_command(["cat", "config"], check=False)
+                return returncode == 0
+            except Exception as e:
+                logger.debug(f"Error checking SFTP repository existence: {e}")
+                return False
+        else:
+            # Handle filesystem repositories
+            try:
+                # For filesystem repos, check if the directory exists and contains a config file
+                repo_dir = Path(repo_path_str)
+                config_file = repo_dir / "config"
+                return config_file.exists()
+            except Exception as e:
+                logger.debug(f"Error checking filesystem repository existence: {e}")
+                return False
+
     def init(self, repo_path: Path, password: str) -> bool:
         """Initializes a new restic repository."""
         self.repo_path = repo_path
@@ -248,6 +278,12 @@ class ResticEngine(BaseEngine):
             return result
         except (subprocess.CalledProcessError, json.JSONDecodeError) as e:
             logger.error(f"Failed to list snapshots: {e}")
+            # Check if the error indicates the repository doesn't exist
+            if isinstance(
+                e, subprocess.CalledProcessError
+            ) and "repository does not exist" in str(e):
+                # Re-raise the exception to properly handle repository initialization
+                raise
             return []
 
     def forget(self, snapshot_ids: List[str]) -> bool:
