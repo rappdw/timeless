@@ -41,8 +41,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("timeless")
 
-# Define service name for keyring
-SERVICE_NAME = "timeless-py"
+# Keyring integration uses account names as service names
 
 # Create the Typer app
 app = typer.Typer(
@@ -73,12 +72,13 @@ def get_repo_credentials(
     pwd_file = password_file or os.environ.get("TIMELESS_PASSWORD_FILE")
 
     if not repo_path:
-        repo_path = keyring.get_password("TIMELESS_REPO", SERVICE_NAME)
+        # Fetch from keyring using keychain name as service and account as "timeless-py"
+        repo_path = keyring.get_password("TIMELESS_REPO", "timeless-py")
         if repo_path:
             logger.debug("Loaded repository path from keyring.")
 
     if not pwd and not pwd_file:
-        pwd = keyring.get_password("TIMELESS_PASSWORD", SERVICE_NAME)
+        pwd = keyring.get_password("TIMELESS_PASSWORD", "timeless-py")
         if pwd:
             logger.debug("Loaded password from keyring.")
 
@@ -289,8 +289,8 @@ def init(
         logger.info("Saving credentials to system keychain...")
         # Save the original semicolon-separated string
         repo_str = ";".join(repo_paths)
-        keyring.set_password(SERVICE_NAME, "TIMELESS_REPO", repo_str)
-        keyring.set_password(SERVICE_NAME, "TIMELESS_PASSWORD", pwd)
+        keyring.set_password("TIMELESS_REPO", "timeless-py", repo_str)
+        keyring.set_password("TIMELESS_PASSWORD", "timeless-py", pwd)
         logger.info("Credentials saved successfully.")
 
         if errors:
