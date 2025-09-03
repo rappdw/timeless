@@ -34,7 +34,7 @@
 | ------------------------------------ | ----------------------------------------------------------------------------------------------- |
 | `timeless init`                      | Interactive wizard: choose engine/target, store repo key in Keychain, create launchd plist.     |
 | `timeless backup`                    | Run snapshot + retention pruning + manifest refresh.                                            |
-| `timeless mount`                     | Mount selected snapshot at `/Volumes/Timeless`.                                                 |
+| `timeless mount`                     | Mount the repository for browsing snapshots at `/Volumes/Timeless`.                             |
 | `timeless restore <snapshot> <path>` | Copy a file/dir from snapshot to working dir.                                                   |
 | `timeless snapshots --json`          | Machine-readable list of snapshots (ISO timestamps).                                            |
 | `timeless check`                     | Invoke engine integrity check, report via macOS notification center.                            |
@@ -43,12 +43,12 @@
 ### 3.2 Retention Policy DSL
 
 ```yaml
-policy:
-  hourly: 24          # keep last 24
-  daily: 30
-  weekly: 12
-  monthly: forever
-exclude:
+hourly: 24            # keep last 24 hourly snapshots
+daily: 30
+weekly: 12
+monthly: 12
+yearly: 3
+exclude_patterns:
   - "/System/**"
   - "/Applications/**"
   - "/opt/homebrew/**"
@@ -73,7 +73,7 @@ exclude:
   mas list > mas.txt
   ```
 
-Manifests are tagged (`type:manifest`) so they live in Restic but remain tiny.
+Manifests are backed up as snapshots tagged `manifest`, keeping them small and easy to locate.
 
 ---
 
@@ -81,10 +81,10 @@ Manifests are tagged (`type:manifest`) so they live in Restic but remain tiny.
 
 * **Language**: Python 3.11+ (test under 3.11 & 3.12).
 * **Project Management**: uv (init, lock, sync, run, build, publish).
-* **Packaging**: wheel & zipapp via `uv build`.
+* **Packaging**: wheels (via uv/pip); optional zipapp via `shiv` (dev).
 * **Mac Support**: Ventura (13) → Sequoia (15).
 * **Memory Budget**: ≤ 600 MB during large prune.
-* **Security**: All subprocess calls with sanitized env (`env -i`); temp files in `SecureTemporaryDirectory`.
+* **Security**: Credentials stored in Keychain via `keyring`; Restic commands receive `RESTIC_*` via environment (parent env inherited); manifests generated in `tempfile.TemporaryDirectory`. Additional env-hardening is planned.
 
 ---
 
@@ -92,16 +92,16 @@ Manifests are tagged (`type:manifest`) so they live in Restic but remain tiny.
 
 ```
 timeless_py/
-├── cli.py          # Typer + uv-driven entry
-├── engine/         # __init__.py declares BaseEngine
-│   ├── restic.py   # subprocess wrapper + JSON parsing
-│   ├── borg.py
-│   └── kopia.py
-├── scheduler/      # launchd plist template + loader
-├── manifest/       # brew.py, apps.py, mas.py
-├── keychain.py     # wrapper over python-keyring
-├── retention.py    # policy parser + evaluator
-├── notifier.py     # pync notifications
+├── cli.py              # Typer CLI entrypoint
+├── engine/             # BaseEngine + Restic engine
+│   ├── __init__.py     # BaseEngine, Snapshot dataclass
+│   └── restic.py       # subprocess wrapper + JSON parsing; repo existence checks; exit code 3 handling
+├── manifest/           # software manifests + replay
+│   ├── brew.py
+│   ├── apps.py
+│   ├── mas.py
+│   └── replay.py
+├── retention.py        # policy parser + evaluator (hourly/daily/weekly/monthly/yearly, exclude_patterns)
 └── tests/
 ```
 
@@ -111,12 +111,14 @@ timeless_py/
 
 | Purpose             | Package                              |
 | ------------------- | ------------------------------------ |
-| CLI                 | `typer[all]`                         |
+| CLI                 | `typer`                              |
 | Keychain            | `keyring`, `keyrings.alt`            |
-| Restic JSON Parsing | `orjson`                             |
-| Scheduling Helpers  | `pycron`, `python-launchd`           |
+| JSON (Restic)       | `orjson`                             |
+| YAML                | `pyyaml`                             |
+| Console / Logging   | `rich`                               |
+| Scheduling Helpers  | `pycron`, `launchd`                  |
 | Notifications       | `pync`                               |
-| Packaging           | `shiv`, `uv`                         |
+| Dev Packaging       | `shiv`                               |
 | Lint / Format       | `ruff`, `black`, `isort`, `mypy`     |
 | Testing             | `pytest`, `pytest-cov`, `hypothesis` |
 
@@ -124,11 +126,14 @@ timeless_py/
 
 ## 7. Milestones
 
-1. **M0 (1 day)** – repo bootstrap (`uv init`, GitHub Actions, CLI stub).
-2. **M1 (4 days)** – Restic engine + retention + exclude patterns + tests.
-3. **M2 (3 days)** – Manifest generators & replay helpers.
-4. **M3 (2 days)** – launchd installer & pync notifications.
-5. **M4 (2 days)** – Kopia engine & FUSE mount wrapper.
+• **Completed**
+1. **M0** – Repository bootstrap (`uv init`, GitHub Actions, CLI stub).
+2. **M1** – Restic engine, retention evaluator, exclude patterns, tests.
+3. **M2** – Manifest generators (Brew, Apps, MAS) & replay helpers.
+
+• **Upcoming**
+4. **M3** – launchd installer & pync notifications.
+5. **M4** – Additional engines (Borg/Kopia). Repository mount exists via Restic (`timeless mount`).
 6. **M5 (stretch)** – Minimal SwiftUI status-bar wrapper.
 
 ---
@@ -140,6 +145,7 @@ timeless_py/
 | Restic JSON output changes       | Pin minimum Restic version; parse via strict dataclass schema.               |
 | Photos Library churn             | Option to treat `.photoLibrary` as monolithic bundle (exclude fine-grained). |
 | Brew path variations (Intel/ARM) | Detect `brew --prefix` at runtime for manifest restore.                      |
+| Restic exit code 3 (unreadable files) | Treat as warning in backup flow; log details; continue processing. Implemented in `ResticEngine.backup()`. |
 
 ---
 
