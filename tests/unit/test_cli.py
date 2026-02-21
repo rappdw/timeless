@@ -368,8 +368,12 @@ def test_backup_default_linux(runner: CliRunner, mock_restic_engine: MagicMock) 
             mock_find.return_value = ("/tmp/test-repo", mock_restic_engine)
             with patch("timeless_py.cli.is_macos", return_value=False):
                 with patch("timeless_py.cli.generate_brewfile", return_value=None):
-                    with patch("timeless_py.cli.generate_apps_manifest", return_value=None):
-                        with patch("timeless_py.cli.generate_mas_manifest", return_value=None):
+                    with patch(
+                        "timeless_py.cli.generate_apps_manifest", return_value=None
+                    ):
+                        with patch(
+                            "timeless_py.cli.generate_mas_manifest", return_value=None
+                        ):
                             result = runner.invoke(app, ["backup"])
 
     assert result.exit_code == 0

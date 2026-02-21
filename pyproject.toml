@@ -38,7 +38,7 @@ macos = [
 ]
 dev = [
     "ruff",
-    "black",
+    "black>=24,<26",
     "isort",
     "mypy",
     "pytest",
@@ -63,6 +63,7 @@ line-length = 88
 
 [tool.ruff.lint]
 select = ["E", "F", "B", "I"]
+ignore = ["E501"]  # line length enforced by black
 
 [tool.black]
 line-length = 88

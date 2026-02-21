@@ -104,7 +104,9 @@ def test_generate_apps_manifest_linux_dpkg(
 ) -> None:
     """Test Linux manifest generation with dpkg available."""
     mock_sys.platform = "linux"
-    mock_which.side_effect = lambda cmd: "/usr/bin/dpkg-query" if cmd == "dpkg" else None
+    mock_which.side_effect = lambda cmd: (
+        "/usr/bin/dpkg-query" if cmd == "dpkg" else None
+    )
 
     mock_result = MagicMock()
     mock_result.stdout = "vim 9.0\ncurl 7.88\n"
