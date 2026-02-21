@@ -1,7 +1,7 @@
 """
-Command-line interface for Timeless-Py.
+Command-line interface for TimeVault.
 
-This module provides the command-line entry point for the Timeless-Py backup
+This module provides the command-line entry point for the TimeVault backup
 application.
 """
 
@@ -20,6 +20,7 @@ from rich.logging import RichHandler
 
 from timeless_py import __version__
 from timeless_py.engine.restic import ResticEngine
+from timeless_py.platform import default_mount_path, is_macos
 from timeless_py.manifest.apps import generate_apps_manifest
 from timeless_py.manifest.brew import generate_brewfile
 from timeless_py.manifest.mas import generate_mas_manifest
@@ -39,7 +40,7 @@ logging.basicConfig(
     datefmt="[%X]",
     handlers=[RichHandler(console=console, rich_tracebacks=True)],
 )
-logger = logging.getLogger("timeless")
+logger = logging.getLogger("timevault")
 
 # Keyring integration uses account names as service names
 
@@ -72,13 +73,13 @@ def get_repo_credentials(
     pwd_file = password_file or os.environ.get("TIMELESS_PASSWORD_FILE")
 
     if not repo_path:
-        # Fetch from keyring using keychain name as service and account as "timeless-py"
-        repo_path = keyring.get_password("TIMELESS_REPO", "timeless-py")
+        # Fetch from keyring using keychain name as service and account as "timevault"
+        repo_path = keyring.get_password("TIMELESS_REPO", "timevault")
         if repo_path:
             logger.debug("Loaded repository path from keyring.")
 
     if not pwd and not pwd_file:
-        pwd = keyring.get_password("TIMELESS_PASSWORD", "timeless-py")
+        pwd = keyring.get_password("TIMELESS_PASSWORD", "timevault")
         if pwd:
             logger.debug("Loaded password from keyring.")
 
@@ -153,10 +154,10 @@ def callback(
     ),
 ) -> None:
     """
-    Timeless-Py: Snapshot what matters, remember how to rebuild the rest.
+    TimeVault: Snapshot what matters, remember how to rebuild the rest.
     """
     if version:
-        console.print(f"Timeless-Py version: {__version__}")
+        console.print(f"timevault version: {__version__}")
         raise typer.Exit()
 
     # Configure logging level based on verbosity
@@ -205,12 +206,12 @@ def init(
     ),
 ) -> None:
     """
-    Initialize Timeless with configuration wizard.
+    Initialize TimeVault with configuration wizard.
 
     This command sets up the repository, stores keys in the Keychain, and creates
     necessary launch configurations.
     """
-    logger.info("Initializing Timeless repository...")
+    logger.info("Initializing TimeVault repository...")
 
     repo_paths, pwd, pwd_file = get_repo_credentials(repo, password, password_file)
 
@@ -289,8 +290,8 @@ def init(
         logger.info("Saving credentials to system keychain...")
         # Save the original semicolon-separated string
         repo_str = ";".join(repo_paths)
-        keyring.set_password("TIMELESS_REPO", "timeless-py", repo_str)
-        keyring.set_password("TIMELESS_PASSWORD", "timeless-py", pwd)
+        keyring.set_password("TIMELESS_REPO", "timevault", repo_str)
+        keyring.set_password("TIMELESS_PASSWORD", "timevault", pwd)
         logger.info("Credentials saved successfully.")
 
         if errors:
@@ -414,7 +415,7 @@ def backup(
     repo_path, engine = result
 
     # Manifest refresh
-    with tempfile.TemporaryDirectory(prefix="timeless-manifests-") as temp_dir_str:
+    with tempfile.TemporaryDirectory(prefix="timevault-manifests-") as temp_dir_str:
         temp_dir = Path(temp_dir_str)
         logger.info(f"Generating manifests in temporary directory: {temp_dir}")
 
@@ -461,50 +462,63 @@ def backup(
             logger.info(f"Backup successful. Snapshot ID: {snapshot_id}")
 
     else:
-        # Default behavior: back up home, library, and cloud storage separately
         home_dir = Path.home()
-        library_dir = home_dir / "Library"
-        cloud_storage_dir = library_dir / "CloudStorage"
         base_tags = tags or []
 
-        # 1. Backup home directory, excluding Library and CloudStorage
-        logger.info(f"Backing up home directory ({home_dir}) with exclusions...")
-        exclusions = policy.exclude_patterns + [str(library_dir)]
-        if cloud_storage_dir.exists():
-            exclusions.append(str(cloud_storage_dir))
+        if is_macos():
+            # macOS: back up home, Library, and CloudStorage separately
+            library_dir = home_dir / "Library"
+            cloud_storage_dir = library_dir / "CloudStorage"
 
-        engine.backup(
-            paths=[home_dir],
-            exclude_patterns=exclusions,
-            tags=base_tags + ["home"],
-            verbose=verbose,
-        )
-
-        # 2. Backup Library, excluding CloudStorage
-        if library_dir.exists():
-            logger.info(f"Backing up Library directory ({library_dir})...")
-            library_exclusions = policy.exclude_patterns[:]
+            # 1. Backup home directory, excluding Library and CloudStorage
+            logger.info(f"Backing up home directory ({home_dir}) with exclusions...")
+            exclusions = policy.exclude_patterns + [str(library_dir)]
             if cloud_storage_dir.exists():
-                library_exclusions.append(str(cloud_storage_dir))
+                exclusions.append(str(cloud_storage_dir))
 
             engine.backup(
-                paths=[library_dir],
-                exclude_patterns=library_exclusions,
-                tags=base_tags + ["library"],
+                paths=[home_dir],
+                exclude_patterns=exclusions,
+                tags=base_tags + ["home"],
                 verbose=verbose,
             )
 
-        # 3. Backup Cloud Storage directories
-        if cloud_storage_dir.exists():
-            for provider_dir in cloud_storage_dir.iterdir():
-                if provider_dir.is_dir():
-                    logger.info(f"Backing up {provider_dir.name} ({provider_dir})...")
-                    engine.backup(
-                        paths=[provider_dir],
-                        tags=base_tags + [f"cloud-{provider_dir.name.lower()}"],
-                        exclude_patterns=policy.exclude_patterns,
-                        verbose=verbose,
-                    )
+            # 2. Backup Library, excluding CloudStorage
+            if library_dir.exists():
+                logger.info(f"Backing up Library directory ({library_dir})...")
+                library_exclusions = policy.exclude_patterns[:]
+                if cloud_storage_dir.exists():
+                    library_exclusions.append(str(cloud_storage_dir))
+
+                engine.backup(
+                    paths=[library_dir],
+                    exclude_patterns=library_exclusions,
+                    tags=base_tags + ["library"],
+                    verbose=verbose,
+                )
+
+            # 3. Backup Cloud Storage directories
+            if cloud_storage_dir.exists():
+                for provider_dir in cloud_storage_dir.iterdir():
+                    if provider_dir.is_dir():
+                        logger.info(
+                            f"Backing up {provider_dir.name} ({provider_dir})..."
+                        )
+                        engine.backup(
+                            paths=[provider_dir],
+                            tags=base_tags + [f"cloud-{provider_dir.name.lower()}"],
+                            exclude_patterns=policy.exclude_patterns,
+                            verbose=verbose,
+                        )
+        else:
+            # Linux: single backup of the home directory
+            logger.info(f"Backing up home directory ({home_dir})...")
+            engine.backup(
+                paths=[home_dir],
+                exclude_patterns=policy.exclude_patterns,
+                tags=base_tags + ["home"],
+                verbose=verbose,
+            )
 
     logger.info("Backup process completed.")
 
@@ -642,10 +656,10 @@ def list_snapshots(
 @app.command()
 def mount(
     target: str = typer.Option(
-        "/Volumes/Timeless",
+        default_mount_path(),
         "--target",
         "-t",
-        help="Mount point for the repository (default: /Volumes/Timeless).",
+        help="Mount point for the repository.",
     ),
     repo: str = typer.Option(
         None,
@@ -935,7 +949,7 @@ def brew_replay(
         log_error("Could not find a manifest snapshot. Nothing to replay.")
         raise typer.Exit(1)
 
-    with tempfile.TemporaryDirectory(prefix="timeless-replay-") as temp_dir_str:
+    with tempfile.TemporaryDirectory(prefix="timevault-replay-") as temp_dir_str:
         temp_dir = Path(temp_dir_str)
         logger.info(f"Restoring manifests to temporary directory: {temp_dir}")
 
@@ -979,7 +993,7 @@ def brew_replay(
 @app.command()
 def version() -> None:
     """Show the application version and exit."""
-    console.print(f"Timeless-Py version: {__version__}")
+    console.print(f"timevault version: {__version__}")
 
 
 if __name__ == "__main__":

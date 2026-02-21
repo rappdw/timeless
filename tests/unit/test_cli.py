@@ -33,7 +33,7 @@ def test_version(runner: CliRunner) -> None:
     """Test the version command."""
     result = runner.invoke(app, ["version"])
     assert result.exit_code == 0
-    assert "Timeless-Py version" in result.stdout
+    assert "timevault version" in result.stdout
 
 
 def test_backup_command(runner: CliRunner, mock_restic_engine: MagicMock) -> None:
@@ -353,6 +353,30 @@ def test_find_accessible_repo() -> None:
         assert result is None
         assert mock_engine_class.call_count == 2
         assert mock_engine.snapshots.call_count == 2
+
+
+def test_backup_default_linux(runner: CliRunner, mock_restic_engine: MagicMock) -> None:
+    """Test that the default backup on Linux does a single home backup."""
+    mock_restic_engine.backup.return_value = "snap1"
+    mock_restic_engine.snapshots.return_value = []
+
+    with patch.dict(
+        os.environ,
+        {"TIMELESS_REPO": "/tmp/test-repo", "TIMELESS_PASSWORD": "test-password"},
+    ):
+        with patch("timeless_py.cli.find_accessible_repo") as mock_find:
+            mock_find.return_value = ("/tmp/test-repo", mock_restic_engine)
+            with patch("timeless_py.cli.is_macos", return_value=False):
+                with patch("timeless_py.cli.generate_brewfile", return_value=None):
+                    with patch("timeless_py.cli.generate_apps_manifest", return_value=None):
+                        with patch("timeless_py.cli.generate_mas_manifest", return_value=None):
+                            result = runner.invoke(app, ["backup"])
+
+    assert result.exit_code == 0
+    # On Linux the engine should be called once for home
+    assert mock_restic_engine.backup.call_count == 1
+    _, kwargs = mock_restic_engine.backup.call_args
+    assert "home" in kwargs.get("tags", [])
 
 
 def test_init_command_multi_target(runner: CliRunner) -> None:

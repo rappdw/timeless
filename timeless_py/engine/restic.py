@@ -15,11 +15,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-import orjson  # High-performance JSON parser
-
 from timeless_py.engine import BaseEngine, Snapshot
+from timeless_py.platform import unmount_command
 
-logger = logging.getLogger("timeless.engine.restic")
+logger = logging.getLogger("timevault.engine.restic")
 
 
 class ResticEngine(BaseEngine):
@@ -261,7 +260,7 @@ class ResticEngine(BaseEngine):
         """
         try:
             _, stdout, _ = self._run_command(["snapshots", "--json"])
-            data = orjson.loads(stdout)
+            data = json.loads(stdout)
 
             result = []
             for snap in data:
@@ -420,9 +419,8 @@ class ResticEngine(BaseEngine):
             True if successful, False otherwise
         """
         try:
-            # On macOS, use umount
             result = subprocess.run(
-                ["umount", str(target)],
+                unmount_command(str(target)),
                 check=False,
                 capture_output=True,
                 text=True,

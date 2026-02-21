@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, mock_open, patch
@@ -29,8 +30,12 @@ def test_generate_brewfile_brew_not_found(mock_run: MagicMock, tmp_path: Path) -
     assert result is None
 
 
+@patch("timeless_py.manifest.apps.sys")
 @patch("subprocess.run")
-def test_generate_apps_manifest_success(mock_run: MagicMock, tmp_path: Path) -> None:
+def test_generate_apps_manifest_success(
+    mock_run: MagicMock, mock_sys: MagicMock, tmp_path: Path
+) -> None:
+    mock_sys.platform = "darwin"
     mock_run.return_value = MagicMock(returncode=0)
     with patch("builtins.open", mock_open()) as mock_file:
         result = generate_apps_manifest(tmp_path)
@@ -89,3 +94,38 @@ def test_replay_mas_manifest_success(mock_run: MagicMock, tmp_path: Path) -> Non
     mock_run.assert_called_with(
         ["mas", "install", "12345"], check=True, capture_output=True, text=True
     )
+
+
+@patch("timeless_py.manifest.apps.sys")
+@patch("timeless_py.manifest.apps.shutil.which")
+@patch("timeless_py.manifest.apps.subprocess.run")
+def test_generate_apps_manifest_linux_dpkg(
+    mock_run: MagicMock, mock_which: MagicMock, mock_sys: MagicMock, tmp_path: Path
+) -> None:
+    """Test Linux manifest generation with dpkg available."""
+    mock_sys.platform = "linux"
+    mock_which.side_effect = lambda cmd: "/usr/bin/dpkg-query" if cmd == "dpkg" else None
+
+    mock_result = MagicMock()
+    mock_result.stdout = "vim 9.0\ncurl 7.88\n"
+    mock_run.return_value = mock_result
+
+    result = generate_apps_manifest(tmp_path)
+    assert result == tmp_path / "applications.json"
+
+    data = json.loads((tmp_path / "applications.json").read_text())
+    assert "dpkg" in data
+    assert "vim 9.0" in data["dpkg"]
+
+
+@patch("timeless_py.manifest.apps.sys")
+@patch("timeless_py.manifest.apps.shutil.which")
+def test_generate_apps_manifest_linux_no_pkg_managers(
+    mock_which: MagicMock, mock_sys: MagicMock, tmp_path: Path
+) -> None:
+    """Test Linux manifest returns None when no package managers found."""
+    mock_sys.platform = "linux"
+    mock_which.return_value = None
+
+    result = generate_apps_manifest(tmp_path)
+    assert result is None

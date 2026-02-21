@@ -243,6 +243,34 @@ def test_restic_engine_unmount(
     assert str(target) in args[0]
 
 
+def test_restic_engine_unmount_macos(
+    restic_engine: ResticEngine, mock_subprocess: MagicMock
+) -> None:
+    """Test unmount uses umount on macOS."""
+    mock_subprocess.run.return_value.returncode = 0
+
+    with patch("timeless_py.engine.restic.unmount_command", return_value=["umount", "/Volumes/Timeless"]):
+        result = restic_engine.unmount(Path("/Volumes/Timeless"))
+
+    assert result is True
+    args, _ = mock_subprocess.run.call_args
+    assert args[0] == ["umount", "/Volumes/Timeless"]
+
+
+def test_restic_engine_unmount_linux(
+    restic_engine: ResticEngine, mock_subprocess: MagicMock
+) -> None:
+    """Test unmount uses fusermount -u on Linux."""
+    mock_subprocess.run.return_value.returncode = 0
+
+    with patch("timeless_py.engine.restic.unmount_command", return_value=["fusermount", "-u", "/mnt/timeless"]):
+        result = restic_engine.unmount(Path("/mnt/timeless"))
+
+    assert result is True
+    args, _ = mock_subprocess.run.call_args
+    assert args[0] == ["fusermount", "-u", "/mnt/timeless"]
+
+
 def test_restic_engine_run_command_error(
     restic_engine: ResticEngine, mock_subprocess: MagicMock
 ) -> None:
