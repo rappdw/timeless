@@ -278,11 +278,14 @@ class ResticEngine(BaseEngine):
         except (subprocess.CalledProcessError, json.JSONDecodeError) as e:
             logger.error(f"Failed to list snapshots: {e}")
             # Check if the error indicates the repository doesn't exist
-            if isinstance(
-                e, subprocess.CalledProcessError
-            ) and "repository does not exist" in str(e):
-                # Re-raise the exception to properly handle repository initialization
-                raise
+            if isinstance(e, subprocess.CalledProcessError):
+                error_text = (e.stderr or "") + str(e)
+                if (
+                    "unable to open config file" in error_text
+                    or "Is there a repository at the following location" in error_text
+                    or "repository does not exist" in error_text
+                ):
+                    raise
             return []
 
     def forget(self, snapshot_ids: List[str]) -> bool:

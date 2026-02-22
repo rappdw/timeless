@@ -27,6 +27,7 @@ dependencies = [
     "keyring",
     "keyrings.alt",
     "pycron",
+    "pycryptodome",
     "pyyaml",
     "rich",
 ]

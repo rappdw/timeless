@@ -354,6 +354,40 @@ def test_find_accessible_repo() -> None:
         assert mock_engine_class.call_count == 2
         assert mock_engine.snapshots.call_count == 2
 
+    # Test auto-init when repository does not exist
+    with patch("timeless_py.cli.ResticEngine") as mock_engine_class:
+        mock_engine = MagicMock()
+        mock_engine_class.return_value = mock_engine
+
+        # Repository does not exist, init succeeds, then snapshots works
+        mock_engine.repository_exists.return_value = False
+        mock_engine._run_command.return_value = (0, "", "")
+
+        result = find_accessible_repo(["/tmp/repo1"], "password", None)
+        assert result is not None
+        repo_path, engine = result
+        assert repo_path == "/tmp/repo1"
+        mock_engine.repository_exists.assert_called_once()
+        mock_engine._run_command.assert_called_once_with(["init"], check=False)
+        mock_engine.snapshots.assert_called_once()
+
+    # Test auto-init failure falls through to next repo
+    with patch("timeless_py.cli.ResticEngine") as mock_engine_class:
+        mock_engine = MagicMock()
+        mock_engine_class.return_value = mock_engine
+
+        # First repo doesn't exist and init fails; second repo exists and works
+        mock_engine.repository_exists.side_effect = [False, True]
+        mock_engine._run_command.return_value = (1, "", "init failed")
+
+        result = find_accessible_repo(
+            ["/tmp/repo1", "/tmp/repo2"], "password", None
+        )
+        assert result is not None
+        repo_path, engine = result
+        assert repo_path == "/tmp/repo2"
+        assert mock_engine_class.call_count == 2
+
 
 def test_backup_default_linux(runner: CliRunner, mock_restic_engine: MagicMock) -> None:
     """Test that the default backup on Linux does a single home backup."""

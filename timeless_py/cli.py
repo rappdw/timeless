@@ -74,14 +74,20 @@ def get_repo_credentials(
 
     if not repo_path:
         # Fetch from keyring using keychain name as service and account as "timevault"
-        repo_path = keyring.get_password("TIMELESS_REPO", "timevault")
-        if repo_path:
-            logger.debug("Loaded repository path from keyring.")
+        try:
+            repo_path = keyring.get_password("TIMELESS_REPO", "timevault")
+            if repo_path:
+                logger.debug("Loaded repository path from keyring.")
+        except Exception as e:
+            logger.debug(f"Failed to load repository path from keyring: {e}")
 
     if not pwd and not pwd_file:
-        pwd = keyring.get_password("TIMELESS_PASSWORD", "timevault")
-        if pwd:
-            logger.debug("Loaded password from keyring.")
+        try:
+            pwd = keyring.get_password("TIMELESS_PASSWORD", "timevault")
+            if pwd:
+                logger.debug("Loaded password from keyring.")
+        except Exception as e:
+            logger.debug(f"Failed to load password from keyring: {e}")
 
     # Split repo_path by semicolons if it exists
     repo_paths = []
@@ -106,6 +112,8 @@ def find_accessible_repo(
     """
     Find the first accessible repository from a list of repository paths.
 
+    If a repository does not exist, it will be automatically initialized.
+
     Args:
         repo_paths: List of repository paths to try
         pwd: Repository password
@@ -127,7 +135,43 @@ def find_accessible_repo(
                 password=pwd,
                 password_file=Path(pwd_file) if pwd_file else None,
             )
-            # Check if the repository is accessible
+
+            needs_init = not engine.repository_exists()
+
+            if not needs_init:
+                # Repository appears to exist, verify it's actually accessible
+                try:
+                    engine.snapshots()
+                    logger.info(f"Using repository: {repo_path}")
+                    return repo_path, engine
+                except Exception as e:
+                    logger.warning(
+                        f"Repository at {repo_path} exists but is not "
+                        f"accessible: {e}. Attempting re-initialization..."
+                    )
+                    needs_init = True
+
+            if needs_init:
+                logger.info(
+                    f"Repository does not exist at {repo_path}, "
+                    f"initializing..."
+                )
+                returncode, _, stderr = engine._run_command(["init"], check=False)
+                if returncode == 0:
+                    logger.info(
+                        f"Successfully initialized repository at {repo_path}"
+                    )
+                else:
+                    logger.warning(
+                        f"Failed to initialize repository at {repo_path}: "
+                        f"{stderr}"
+                    )
+                    last_error = RuntimeError(
+                        f"Failed to initialize repository: {stderr}"
+                    )
+                    continue
+
+            # Verify the (re-)initialized repository is accessible
             engine.snapshots()
             logger.info(f"Using repository: {repo_path}")
             return repo_path, engine
@@ -290,9 +334,15 @@ def init(
         logger.info("Saving credentials to system keychain...")
         # Save the original semicolon-separated string
         repo_str = ";".join(repo_paths)
-        keyring.set_password("TIMELESS_REPO", "timevault", repo_str)
-        keyring.set_password("TIMELESS_PASSWORD", "timevault", pwd)
-        logger.info("Credentials saved successfully.")
+        try:
+            keyring.set_password("TIMELESS_REPO", "timevault", repo_str)
+            keyring.set_password("TIMELESS_PASSWORD", "timevault", pwd)
+            logger.info("Credentials saved successfully.")
+        except Exception as e:
+            logger.warning(
+                f"Failed to save credentials to keyring: {e}. "
+                "Use environment variables or command-line arguments instead."
+            )
 
         if errors:
             warning_msg = "Some repositories had initialization errors:"
