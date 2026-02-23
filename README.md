@@ -1,5 +1,10 @@
 # TimeVault
 
+[![CI](https://github.com/rappdw/timeless/actions/workflows/ci.yml/badge.svg)](https://github.com/rappdw/timeless/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/timevault)](https://pypi.org/project/timevault/)
+[![Python](https://img.shields.io/pypi/pyversions/timevault)](https://pypi.org/project/timevault/)
+[![License](https://img.shields.io/github/license/rappdw/timeless)](https://github.com/rappdw/timeless/blob/main/LICENSE)
+
 > Snapshot what matters, remember how to rebuild the rest.
 
 Time Machine-style personal backup orchestrated by Python & uv.
