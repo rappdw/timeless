@@ -3,9 +3,10 @@ Tests for the CLI module.
 """
 
 import os
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Generator
+from typing import Generator, Iterator
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -470,18 +471,13 @@ def test_init_command_multi_target(runner: CliRunner) -> None:
             assert "Some repositories had initialization errors" in result.stdout
 
 
-def _no_manifest_patches() -> Generator[None, None, None]:
+@contextmanager
+def _no_manifest_patches() -> Iterator[None]:
     """Context manager to disable manifest generation in tests."""
-    from contextlib import contextmanager
-
-    @contextmanager
-    def apply() -> Generator[None, None, None]:
-        with patch("timeless_py.cli.generate_brewfile", return_value=None):
-            with patch("timeless_py.cli.generate_apps_manifest", return_value=None):
-                with patch("timeless_py.cli.generate_mas_manifest", return_value=None):
-                    yield
-
-    return apply()
+    with patch("timeless_py.cli.generate_brewfile", return_value=None):
+        with patch("timeless_py.cli.generate_apps_manifest", return_value=None):
+            with patch("timeless_py.cli.generate_mas_manifest", return_value=None):
+                yield
 
 
 def test_backup_uses_config_paths(
