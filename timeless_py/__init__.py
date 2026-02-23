@@ -4,4 +4,6 @@ TimeVault - Time Machine-style personal backup orchestrated by Python & uv.
 Snapshot what matters, remember how to rebuild the rest.
 """
 
-__version__ = "0.2.0"
+from importlib.metadata import version as _version
+
+__version__ = _version("timevault")
