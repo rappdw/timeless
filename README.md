@@ -1,4 +1,4 @@
-# Timeless-Py ⏳
+# TimeVault
 
 > Snapshot what matters, remember how to rebuild the rest.
 
@@ -6,82 +6,120 @@ Time Machine-style personal backup orchestrated by Python & uv.
 
 ## Overview
 
-Timeless-Py is a modern backup solution designed for macOS, providing:
+TimeVault is a modern backup solution for macOS and Linux, providing:
 
 - Hourly, daily, weekly deduplicated snapshots of user data
 - Re-install manifest generation for applications and system packages
-- Engine-agnostic approach with Restic, Borg, and Kopia support
-- Client-side encryption (AES-256) with keys stored in Keychain
-- Simple 10-minute setup: `brew install timeless-py` → `timeless init --wizard`
+- Restic-backed with client-side encryption (AES-256) and Keychain/keyring support
+- Persistent configuration via `~/.config/timevault/config.yaml`
 
-## Features
-
-- **Snapshot Management**: Create, browse, and restore backups with ease
-- **Retention Policies**: Define flexible retention policies (hourly/daily/weekly/monthly/yearly)
-- **Manifest Generation**: Auto-generate reinstall manifests for your Mac software
-- **Built-in Security**: Fully encrypted snapshots with secure key management
-- **FUSE Integration**: Mount snapshots as regular volumes for easy browsing
-- **Exclude Patterns**: Specify patterns for files and directories to exclude from backups
-
-### M1 Milestone Features
-
-- **Restic Engine Integration**: Full integration with Restic for backup, restore, snapshot management, and repository operations
-- **Retention Policy DSL**: Define custom retention policies in YAML to automatically manage snapshot retention
-- **Exclude Patterns Support**: Exclude specific files or directories from backups using glob patterns
-- **Comprehensive CLI Interface**: User-friendly command-line interface for all operations
-
-## Installation
+## Quick Start
 
 ```bash
-# Coming soon - once published
-brew install timeless-py
+# Run directly (no install needed)
+uvx timevault init --repo /path/to/repo --password <pw>
+uvx timevault backup
 
-# Initialize with wizard
-timeless init --wizard
+# Or install globally
+uv tool install timevault
+timevault backup
 ```
 
 ## Usage
 
 ```bash
-# Create a backup
-timeless backup
+# Initialize repository and store credentials in keyring
+timevault init --repo /path/to/repo --password <pw>
 
-# Mount latest snapshot
-timeless mount
+# Run a backup (uses config file or platform defaults)
+timevault backup
+
+# Back up specific paths
+timevault backup ~/Documents ~/Projects
+
+# Back up with a retention policy file
+timevault backup --policy policy.yaml
+
+# Mount latest snapshot as a FUSE volume
+timevault mount
 
 # Restore a file or directory
-timeless restore <snapshot> <path>
+timevault restore <snapshot> <path> --target /tmp/restore
 
 # List available snapshots
-timeless snapshots
+timevault snapshots
 
 # Verify repository integrity
-timeless check
+timevault check
 
-# Reinstall software from manifests
-timeless brew-replay
+# Reinstall software from manifests (macOS)
+timevault brew-replay
 ```
+
+## Configuration
+
+Create `~/.config/timevault/config.yaml` to persist settings:
+
+```yaml
+repo: "sftp:user@host:/backups/timevault"
+mount_path: "/Volumes/TimeVault"
+
+backup_paths:
+  - path: "~"
+    tag: "home"
+    exclude:
+      - "~/Library"
+  - path: "~/Library"
+    tag: "library"
+    exclude:
+      - "~/Library/CloudStorage"
+      - "~/Library/Caches"
+
+exclude_patterns:
+  - ".DS_Store"
+  - "*.tmp"
+
+retention:
+  hourly: 24
+  daily: 7
+  weekly: 4
+  monthly: 12
+  yearly: 3
+```
+
+See `examples/` for macOS and Linux example configs.
+
+**Precedence**: CLI flags > environment variables > config file > keyring/defaults.
+
+## Features
+
+- **Snapshot Management**: Create, browse, and restore backups
+- **Retention Policies**: Flexible YAML-based retention (hourly/daily/weekly/monthly/yearly)
+- **Manifest Generation**: Auto-generate reinstall manifests (Homebrew/MAS on macOS; dpkg/rpm/snap/flatpak on Linux)
+- **Exclude Patterns**: Global excludes in config, per-path excludes, and policy-file excludes are merged
+- **FUSE Integration**: Mount snapshots as regular volumes for browsing
+- **Keyring Integration**: Repository credentials stored securely in the system keyring
 
 ## Development
 
-This project requires Python 3.11 or higher.
+Requires Python 3.11+.
 
 ```bash
-# Setup development environment
 git clone https://github.com/rappdw/timeless.git
 cd timeless
-uv pip install -e ".[dev]"
+uv venv && uv pip install -e ".[dev]"
 
 # Run tests
-pytest
+uv run pytest
 
-# Run linting and type checks
-ruff check .
-black --check .
-isort --check .
-mypy --strict .
+# Lint and format
+uv run ruff check .
+uv run ruff format --check .
+
+# Type check
+uv run mypy --strict .
 ```
 
 ## License
 
-This project is licensed under Apache-2.0. See LICENSE file for more details.
+Apache-2.0. See LICENSE for details.
