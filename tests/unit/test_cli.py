@@ -401,14 +401,22 @@ def test_backup_default_linux(runner: CliRunner, mock_restic_engine: MagicMock) 
         with patch("timeless_py.cli.find_accessible_repo") as mock_find:
             mock_find.return_value = ("/tmp/test-repo", mock_restic_engine)
             with patch("timeless_py.cli.is_macos", return_value=False):
-                with patch("timeless_py.cli.generate_brewfile", return_value=None):
+                with patch(
+                    "timeless_py.cli.get_config",
+                    return_value=TimevaultConfig(),
+                ):
                     with patch(
-                        "timeless_py.cli.generate_apps_manifest", return_value=None
+                        "timeless_py.cli.generate_brewfile", return_value=None
                     ):
                         with patch(
-                            "timeless_py.cli.generate_mas_manifest", return_value=None
+                            "timeless_py.cli.generate_apps_manifest",
+                            return_value=None,
                         ):
-                            result = runner.invoke(app, ["backup"])
+                            with patch(
+                                "timeless_py.cli.generate_mas_manifest",
+                                return_value=None,
+                            ):
+                                result = runner.invoke(app, ["backup"])
 
     assert result.exit_code == 0
     # On Linux the engine should be called once for home

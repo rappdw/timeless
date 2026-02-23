@@ -78,7 +78,9 @@ class TimevaultConfig:
                 BackupPath(
                     path=Path(entry["path"]).expanduser(),
                     tag=entry.get("tag"),
-                    exclude=entry.get("exclude", []),
+                    exclude=[
+                        str(Path(e).expanduser()) for e in entry.get("exclude", [])
+                    ],
                 )
             )
 
@@ -95,7 +97,9 @@ class TimevaultConfig:
             repo=data.get("repo"),
             mount_path=data.get("mount_path"),
             backup_paths=backup_paths,
-            exclude_patterns=data.get("exclude_patterns", []),
+            exclude_patterns=[
+                str(Path(e).expanduser()) for e in data.get("exclude_patterns", [])
+            ],
             retention=retention,
         )
 
