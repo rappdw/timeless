@@ -85,7 +85,8 @@ def test_backup_command_with_policy(
 
     # Create a policy file
     policy_file = tmp_path / "policy.yaml"
-    policy_file.write_text("""
+    policy_file.write_text(
+        """
         hourly: 12
         daily: 7
         weekly: 4
@@ -94,7 +95,8 @@ def test_backup_command_with_policy(
         exclude_patterns:
           - "*.tmp"
           - "node_modules/"
-        """)
+        """
+    )
 
     # Set environment variables for the test
     with patch.dict(
@@ -569,11 +571,13 @@ def test_backup_excludes_merged(
 
     # Create a policy file with its own excludes
     policy_file = tmp_path / "policy.yaml"
-    policy_file.write_text("""\
+    policy_file.write_text(
+        """\
 hourly: 6
 exclude_patterns:
   - "*.log"
-""")
+"""
+    )
 
     with patch.dict(
         os.environ,

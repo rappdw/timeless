@@ -50,7 +50,8 @@ def test_empty_file_returns_defaults(tmp_path: Path) -> None:
 def test_full_config_parsing(tmp_path: Path) -> None:
     """A fully-populated config file is parsed correctly."""
     p = tmp_path / "config.yaml"
-    p.write_text("""\
+    p.write_text(
+        """\
 repo: "sftp:user@host:/backups/timevault"
 mount_path: "/Volumes/TimeVault"
 backup_paths:
@@ -70,7 +71,8 @@ retention:
   weekly: 2
   monthly: 6
   yearly: 1
-""")
+"""
+    )
     cfg = TimevaultConfig.from_file(p)
     assert cfg.repo == "sftp:user@host:/backups/timevault"
     assert cfg.mount_path == "/Volumes/TimeVault"
@@ -88,11 +90,13 @@ retention:
 def test_backup_paths_with_tilde_expansion(tmp_path: Path) -> None:
     """Paths with ~ are expanded."""
     p = tmp_path / "config.yaml"
-    p.write_text("""\
+    p.write_text(
+        """\
 backup_paths:
   - path: "~/Documents"
     tag: "docs"
-""")
+"""
+    )
     cfg = TimevaultConfig.from_file(p)
     assert len(cfg.backup_paths) == 1
     assert cfg.backup_paths[0].path == Path.home() / "Documents"
@@ -101,13 +105,15 @@ backup_paths:
 def test_backup_paths_invalid_entry_skipped(tmp_path: Path) -> None:
     """Entries without a 'path' key are skipped."""
     p = tmp_path / "config.yaml"
-    p.write_text("""\
+    p.write_text(
+        """\
 backup_paths:
   - tag: "no-path"
   - path: "~/valid"
     tag: "ok"
   - "just a string"
-""")
+"""
+    )
     cfg = TimevaultConfig.from_file(p)
     assert len(cfg.backup_paths) == 1
     assert cfg.backup_paths[0].tag == "ok"
@@ -116,11 +122,13 @@ backup_paths:
 def test_exclude_patterns_parsing(tmp_path: Path) -> None:
     """Global exclude patterns are parsed as a list of strings."""
     p = tmp_path / "config.yaml"
-    p.write_text("""\
+    p.write_text(
+        """\
 exclude_patterns:
   - "*.log"
   - "*.bak"
-""")
+"""
+    )
     cfg = TimevaultConfig.from_file(p)
     assert cfg.exclude_patterns == ["*.log", "*.bak"]
 
@@ -128,11 +136,13 @@ exclude_patterns:
 def test_retention_partial(tmp_path: Path) -> None:
     """Partial retention config leaves unset fields as None."""
     p = tmp_path / "config.yaml"
-    p.write_text("""\
+    p.write_text(
+        """\
 retention:
   daily: 14
   yearly: 5
-""")
+"""
+    )
     cfg = TimevaultConfig.from_file(p)
     assert cfg.retention.hourly is None
     assert cfg.retention.daily == 14
