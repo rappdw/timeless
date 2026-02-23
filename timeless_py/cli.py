@@ -202,7 +202,7 @@ def find_accessible_repo(
     return None
 
 
-@app.callback()
+@app.callback(invoke_without_command=True)
 def callback(
     verbose: bool = typer.Option(
         False, "--verbose", "-v", help="Enable verbose output."
