@@ -405,9 +405,7 @@ def test_backup_default_linux(runner: CliRunner, mock_restic_engine: MagicMock) 
                     "timeless_py.cli.get_config",
                     return_value=TimevaultConfig(),
                 ):
-                    with patch(
-                        "timeless_py.cli.generate_brewfile", return_value=None
-                    ):
+                    with patch("timeless_py.cli.generate_brewfile", return_value=None):
                         with patch(
                             "timeless_py.cli.generate_apps_manifest",
                             return_value=None,
