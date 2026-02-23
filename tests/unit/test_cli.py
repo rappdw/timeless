@@ -12,6 +12,7 @@ import pytest
 from typer.testing import CliRunner
 
 from timeless_py.cli import app
+from timeless_py.config import BackupPath, TimevaultConfig
 
 
 @pytest.fixture
@@ -84,8 +85,7 @@ def test_backup_command_with_policy(
 
     # Create a policy file
     policy_file = tmp_path / "policy.yaml"
-    policy_file.write_text(
-        """
+    policy_file.write_text("""
         hourly: 12
         daily: 7
         weekly: 4
@@ -94,8 +94,7 @@ def test_backup_command_with_policy(
         exclude_patterns:
           - "*.tmp"
           - "node_modules/"
-        """
-    )
+        """)
 
     # Set environment variables for the test
     with patch.dict(
@@ -380,9 +379,7 @@ def test_find_accessible_repo() -> None:
         mock_engine.repository_exists.side_effect = [False, True]
         mock_engine._run_command.return_value = (1, "", "init failed")
 
-        result = find_accessible_repo(
-            ["/tmp/repo1", "/tmp/repo2"], "password", None
-        )
+        result = find_accessible_repo(["/tmp/repo1", "/tmp/repo2"], "password", None)
         assert result is not None
         repo_path, engine = result
         assert repo_path == "/tmp/repo2"
@@ -469,3 +466,150 @@ def test_init_command_multi_target(runner: CliRunner) -> None:
             assert "Repository already exists" in result.stdout
             assert "Successfully initialized repository" in result.stdout
             assert "Some repositories had initialization errors" in result.stdout
+
+
+def _no_manifest_patches():
+    """Context managers to disable manifest generation in tests."""
+    from contextlib import contextmanager
+
+    @contextmanager
+    def apply():
+        with patch("timeless_py.cli.generate_brewfile", return_value=None):
+            with patch("timeless_py.cli.generate_apps_manifest", return_value=None):
+                with patch("timeless_py.cli.generate_mas_manifest", return_value=None):
+                    yield
+
+    return apply()
+
+
+def test_backup_uses_config_paths(
+    runner: CliRunner, mock_restic_engine: MagicMock
+) -> None:
+    """Config backup_paths are used when no CLI paths are given."""
+    mock_restic_engine.backup.return_value = "snap1"
+    mock_restic_engine.snapshots.return_value = []
+
+    cfg = TimevaultConfig(
+        backup_paths=[
+            BackupPath(path=Path("/data/docs"), tag="documents"),
+            BackupPath(
+                path=Path("/data/projects"),
+                tag="projects",
+                exclude=["*/node_modules"],
+            ),
+        ],
+        exclude_patterns=["*.tmp"],
+    )
+
+    with patch.dict(
+        os.environ,
+        {"TIMELESS_REPO": "/tmp/test-repo", "TIMELESS_PASSWORD": "test-password"},
+    ):
+        with patch("timeless_py.cli.find_accessible_repo") as mock_find:
+            mock_find.return_value = ("/tmp/test-repo", mock_restic_engine)
+            with patch("timeless_py.cli.get_config", return_value=cfg):
+                with _no_manifest_patches():
+                    result = runner.invoke(app, ["backup"])
+
+    assert result.exit_code == 0
+    assert mock_restic_engine.backup.call_count == 2
+
+    # First call: /data/docs with global excludes only
+    _, kw1 = mock_restic_engine.backup.call_args_list[0]
+    assert kw1["paths"] == [Path("/data/docs")]
+    assert kw1["tags"] == ["documents"]
+    assert "*.tmp" in kw1["exclude_patterns"]
+
+    # Second call: /data/projects with global + per-path excludes
+    _, kw2 = mock_restic_engine.backup.call_args_list[1]
+    assert kw2["paths"] == [Path("/data/projects")]
+    assert kw2["tags"] == ["projects"]
+    assert "*.tmp" in kw2["exclude_patterns"]
+    assert "*/node_modules" in kw2["exclude_patterns"]
+
+
+def test_backup_cli_paths_override_config(
+    runner: CliRunner, mock_restic_engine: MagicMock
+) -> None:
+    """CLI positional paths override config backup_paths entirely."""
+    mock_restic_engine.backup.return_value = "snap1"
+    mock_restic_engine.snapshots.return_value = []
+
+    cfg = TimevaultConfig(
+        backup_paths=[
+            BackupPath(path=Path("/data/docs"), tag="documents"),
+        ],
+    )
+
+    with patch.dict(
+        os.environ,
+        {"TIMELESS_REPO": "/tmp/test-repo", "TIMELESS_PASSWORD": "test-password"},
+    ):
+        with patch("timeless_py.cli.find_accessible_repo") as mock_find:
+            mock_find.return_value = ("/tmp/test-repo", mock_restic_engine)
+            with patch("timeless_py.cli.get_config", return_value=cfg):
+                with _no_manifest_patches():
+                    result = runner.invoke(app, ["backup", "/my/custom/path"])
+
+    assert result.exit_code == 0
+    assert mock_restic_engine.backup.call_count == 1
+    _, kw = mock_restic_engine.backup.call_args
+    # Should use the CLI path, not /data/docs from config
+    assert Path("/my/custom/path") in kw["paths"]
+
+
+def test_backup_excludes_merged(
+    runner: CliRunner, mock_restic_engine: MagicMock, tmp_path: Path
+) -> None:
+    """Config global excludes and policy excludes are merged."""
+    mock_restic_engine.backup.return_value = "snap1"
+    mock_restic_engine.snapshots.return_value = []
+
+    cfg = TimevaultConfig(exclude_patterns=["*.tmp", ".DS_Store"])
+
+    # Create a policy file with its own excludes
+    policy_file = tmp_path / "policy.yaml"
+    policy_file.write_text("""\
+hourly: 6
+exclude_patterns:
+  - "*.log"
+""")
+
+    with patch.dict(
+        os.environ,
+        {"TIMELESS_REPO": "/tmp/test-repo", "TIMELESS_PASSWORD": "test-password"},
+    ):
+        with patch("timeless_py.cli.find_accessible_repo") as mock_find:
+            mock_find.return_value = ("/tmp/test-repo", mock_restic_engine)
+            with patch("timeless_py.cli.get_config", return_value=cfg):
+                with _no_manifest_patches():
+                    result = runner.invoke(
+                        app,
+                        ["backup", "/some/path", "--policy", str(policy_file)],
+                    )
+
+    assert result.exit_code == 0
+    _, kw = mock_restic_engine.backup.call_args
+    excludes = kw["exclude_patterns"]
+    # Both config and policy excludes should be present
+    assert "*.tmp" in excludes
+    assert ".DS_Store" in excludes
+    assert "*.log" in excludes
+
+
+def test_repo_from_config(runner: CliRunner) -> None:
+    """Config repo is used when CLI --repo and env vars are absent."""
+    from timeless_py.cli import get_repo_credentials
+
+    cfg = TimevaultConfig(repo="sftp:user@host:/backups")
+
+    with patch.dict(os.environ, {}, clear=True):
+        os.environ.pop("TIMELESS_REPO", None)
+        os.environ.pop("TIMELESS_PASSWORD", None)
+        os.environ.pop("TIMELESS_PASSWORD_FILE", None)
+        with patch("timeless_py.cli.get_config", return_value=cfg):
+            with patch("timeless_py.cli.keyring") as mock_keyring:
+                mock_keyring.get_password.return_value = None
+                repo_paths, _, _ = get_repo_credentials(None, "pw", None)
+
+    assert repo_paths == ["sftp:user@host:/backups"]

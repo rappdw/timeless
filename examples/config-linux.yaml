@@ -1,0 +1,45 @@
+# ~/.config/timevault/config.yaml — Linux example
+#
+# All sections are optional.  CLI flags and environment variables
+# take precedence over values defined here.
+
+repo: "/mnt/backup-drive/timevault"
+mount_path: "/mnt/timevault"
+
+# Each entry becomes a separate backup invocation with its own tag.
+# When present these replace the built-in Linux default (entire home).
+backup_paths:
+  - path: "~/Documents"
+    tag: "documents"
+
+  - path: "~/Projects"
+    tag: "projects"
+    exclude:
+      - "*/node_modules"
+      - "*/.venv"
+      - "*/__pycache__"
+      - "*/.tox"
+      - "*/target"
+
+  - path: "~/.config"
+    tag: "dotconfig"
+
+  - path: "~/.local/share"
+    tag: "local-share"
+    exclude:
+      - "~/.local/share/Trash"
+
+# Global excludes — always applied on top of any --policy excludes.
+exclude_patterns:
+  - "*.tmp"
+  - ".cache"
+  - "*.swp"
+  - "*~"
+
+# Retention defaults (a --policy file fully overrides these).
+retention:
+  hourly: 24
+  daily: 7
+  weekly: 4
+  monthly: 12
+  yearly: 3

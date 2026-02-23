@@ -1,0 +1,53 @@
+# ~/.config/timevault/config.yaml — macOS example
+#
+# All sections are optional.  CLI flags and environment variables
+# take precedence over values defined here.
+#
+# The backup_paths below mirror the hardcoded macOS defaults so you
+# can use this file as a starting point and customise from there.
+# Without backup_paths the same behaviour happens automatically.
+
+repo: "sftp:user@nas.local:/backups/timevault"
+mount_path: "/Volumes/TimeVault"
+
+# Each entry becomes a separate backup invocation with its own tag.
+# When present these replace the built-in macOS defaults.
+backup_paths:
+  # 1. Home directory, excluding Library (backed up separately below)
+  - path: "~"
+    tag: "home"
+    exclude:
+      - "~/Library"
+
+  # 2. Library, excluding CloudStorage (backed up separately below)
+  - path: "~/Library"
+    tag: "library"
+    exclude:
+      - "~/Library/CloudStorage"
+      - "~/Library/Caches"
+
+  # 3. Cloud storage providers — list each one individually to get a
+  #    per-provider tag, or use a single entry for the whole directory.
+  #    The hardcoded default iterates ~/Library/CloudStorage/* and tags
+  #    each subdirectory as cloud-{provider}.  A config file cannot
+  #    replicate that dynamic behaviour, so list providers explicitly:
+  #
+  # - path: "~/Library/CloudStorage/iCloud Drive"
+  #   tag: "cloud-icloud drive"
+  # - path: "~/Library/CloudStorage/Dropbox"
+  #   tag: "cloud-dropbox"
+
+# Global excludes — always applied on top of any --policy excludes.
+exclude_patterns:
+  - ".DS_Store"
+  - "*.tmp"
+  - ".Trash"
+  - ".Spotlight-V100"
+
+# Retention defaults (a --policy file fully overrides these).
+retention:
+  hourly: 24
+  daily: 7
+  weekly: 4
+  monthly: 12
+  yearly: 3

@@ -19,8 +19,8 @@ from rich.console import Console
 from rich.logging import RichHandler
 
 from timeless_py import __version__
+from timeless_py.config import TimevaultConfig
 from timeless_py.engine.restic import ResticEngine
-from timeless_py.platform import default_mount_path, is_macos
 from timeless_py.manifest.apps import generate_apps_manifest
 from timeless_py.manifest.brew import generate_brewfile
 from timeless_py.manifest.mas import generate_mas_manifest
@@ -30,6 +30,7 @@ from timeless_py.manifest.replay import (
     replay_mas_manifest,
     restore_manifests,
 )
+from timeless_py.platform import default_mount_path, is_macos
 from timeless_py.retention import RetentionEvaluator, RetentionPolicy
 
 # Set up the console and logger
@@ -43,6 +44,18 @@ logging.basicConfig(
 logger = logging.getLogger("timevault")
 
 # Keyring integration uses account names as service names
+
+# Lazy-loaded configuration
+_config: Optional[TimevaultConfig] = None
+
+
+def get_config() -> TimevaultConfig:
+    """Return the loaded config, caching it on first call."""
+    global _config
+    if _config is None:
+        _config = TimevaultConfig.load()
+    return _config
+
 
 # Create the Typer app
 app = typer.Typer(
@@ -71,6 +84,12 @@ def get_repo_credentials(
     repo_path = repo or os.environ.get("TIMELESS_REPO")
     pwd = password or os.environ.get("TIMELESS_PASSWORD")
     pwd_file = password_file or os.environ.get("TIMELESS_PASSWORD_FILE")
+
+    if not repo_path:
+        config = get_config()
+        if config.repo:
+            repo_path = config.repo
+            logger.debug("Loaded repository path from config file.")
 
     if not repo_path:
         # Fetch from keyring using keychain name as service and account as "timevault"
@@ -153,18 +172,14 @@ def find_accessible_repo(
 
             if needs_init:
                 logger.info(
-                    f"Repository does not exist at {repo_path}, "
-                    f"initializing..."
+                    f"Repository does not exist at {repo_path}, " f"initializing..."
                 )
                 returncode, _, stderr = engine._run_command(["init"], check=False)
                 if returncode == 0:
-                    logger.info(
-                        f"Successfully initialized repository at {repo_path}"
-                    )
+                    logger.info(f"Successfully initialized repository at {repo_path}")
                 else:
                     logger.warning(
-                        f"Failed to initialize repository at {repo_path}: "
-                        f"{stderr}"
+                        f"Failed to initialize repository at {repo_path}: " f"{stderr}"
                     )
                     last_error = RuntimeError(
                         f"Failed to initialize repository: {stderr}"
@@ -448,13 +463,30 @@ def backup(
         raise typer.Exit(1)
 
     # Load retention policy
+    config = get_config()
     policy = None
     if policy_file:
         logger.info(f"Loading retention policy from {policy_file}")
         policy = RetentionPolicy.from_file(policy_file)
     else:
-        logger.info("Using default retention policy")
-        policy = RetentionPolicy()
+        # Build retention from config values, falling back to RetentionPolicy defaults
+        kwargs = {}
+        rc = config.retention
+        if rc.hourly is not None:
+            kwargs["hourly"] = rc.hourly
+        if rc.daily is not None:
+            kwargs["daily"] = rc.daily
+        if rc.weekly is not None:
+            kwargs["weekly"] = rc.weekly
+        if rc.monthly is not None:
+            kwargs["monthly"] = rc.monthly
+        if rc.yearly is not None:
+            kwargs["yearly"] = rc.yearly
+        if kwargs:
+            logger.info("Using retention settings from config file")
+        else:
+            logger.info("Using default retention policy")
+        policy = RetentionPolicy(**kwargs)
 
     # Find the first accessible repository
     result = find_accessible_repo(repo_paths, pwd, pwd_file)
@@ -470,12 +502,13 @@ def backup(
         logger.info(f"Generating manifests in temporary directory: {temp_dir}")
 
         manifest_paths = []
-        if brewfile_path := generate_brewfile(temp_dir):
-            manifest_paths.append(brewfile_path)
+        if is_macos():
+            if brewfile_path := generate_brewfile(temp_dir):
+                manifest_paths.append(brewfile_path)
+            if mas_manifest_path := generate_mas_manifest(temp_dir):
+                manifest_paths.append(mas_manifest_path)
         if apps_manifest_path := generate_apps_manifest(temp_dir):
             manifest_paths.append(apps_manifest_path)
-        if mas_manifest_path := generate_mas_manifest(temp_dir):
-            manifest_paths.append(mas_manifest_path)
 
         if manifest_paths:
             logger.info("Backing up generated manifests...")
@@ -494,6 +527,9 @@ def backup(
         else:
             logger.info("No manifests were generated. Skipping manifest backup.")
 
+    # Build combined exclude list: config global excludes + policy excludes
+    combined_excludes = config.exclude_patterns + policy.exclude_patterns
+
     # Run backup
     if paths:
         # If paths are provided, back them up directly
@@ -502,7 +538,7 @@ def backup(
         snapshot_id = engine.backup(
             paths=backup_paths,
             tags=tags or [],
-            exclude_patterns=policy.exclude_patterns,
+            exclude_patterns=combined_excludes,
             verbose=verbose,
         )
         if not snapshot_id and not verbose:
@@ -510,6 +546,20 @@ def backup(
             raise typer.Exit(1)
         else:
             logger.info(f"Backup successful. Snapshot ID: {snapshot_id}")
+
+    elif config.backup_paths:
+        # Use backup_paths from config file
+        base_tags = tags or []
+        for bp in config.backup_paths:
+            path_excludes = combined_excludes + bp.exclude
+            bp_tags = base_tags + ([bp.tag] if bp.tag else [])
+            logger.info(f"Backing up {bp.path} (tag={bp.tag})...")
+            engine.backup(
+                paths=[bp.path],
+                exclude_patterns=path_excludes,
+                tags=bp_tags,
+                verbose=verbose,
+            )
 
     else:
         home_dir = Path.home()
@@ -522,7 +572,7 @@ def backup(
 
             # 1. Backup home directory, excluding Library and CloudStorage
             logger.info(f"Backing up home directory ({home_dir}) with exclusions...")
-            exclusions = policy.exclude_patterns + [str(library_dir)]
+            exclusions = combined_excludes + [str(library_dir)]
             if cloud_storage_dir.exists():
                 exclusions.append(str(cloud_storage_dir))
 
@@ -536,7 +586,7 @@ def backup(
             # 2. Backup Library, excluding CloudStorage
             if library_dir.exists():
                 logger.info(f"Backing up Library directory ({library_dir})...")
-                library_exclusions = policy.exclude_patterns[:]
+                library_exclusions = combined_excludes[:]
                 if cloud_storage_dir.exists():
                     library_exclusions.append(str(cloud_storage_dir))
 
@@ -557,7 +607,7 @@ def backup(
                         engine.backup(
                             paths=[provider_dir],
                             tags=base_tags + [f"cloud-{provider_dir.name.lower()}"],
-                            exclude_patterns=policy.exclude_patterns,
+                            exclude_patterns=combined_excludes,
                             verbose=verbose,
                         )
         else:
@@ -565,7 +615,7 @@ def backup(
             logger.info(f"Backing up home directory ({home_dir})...")
             engine.backup(
                 paths=[home_dir],
-                exclude_patterns=policy.exclude_patterns,
+                exclude_patterns=combined_excludes,
                 tags=base_tags + ["home"],
                 verbose=verbose,
             )
@@ -705,8 +755,8 @@ def list_snapshots(
 
 @app.command()
 def mount(
-    target: str = typer.Option(
-        default_mount_path(),
+    target: Optional[str] = typer.Option(
+        None,
         "--target",
         "-t",
         help="Mount point for the repository.",
@@ -731,6 +781,9 @@ def mount(
     """
     Mount selected snapshot at /Volumes/Timeless.
     """
+    if target is None:
+        config = get_config()
+        target = config.mount_path or default_mount_path()
     logger.info(f"Mounting snapshot at {target}...")
 
     repo_paths, pwd, pwd_file = get_repo_credentials(repo, password, password_file)
