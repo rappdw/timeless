@@ -34,15 +34,11 @@ jobs:
     
     - name: Lint with ruff
       run: |
-        .venv/bin/ruff check --fix .
-        
-    - name: Check formatting with black
+        .venv/bin/ruff check .
+
+    - name: Check formatting with ruff
       run: |
-        .venv/bin/black --check .
-        
-    - name: Check imports with isort
-      run: |
-        .venv/bin/isort --check .
+        .venv/bin/ruff format --check .
         
     - name: Type check with mypy
       run: |

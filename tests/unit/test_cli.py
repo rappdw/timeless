@@ -470,12 +470,12 @@ def test_init_command_multi_target(runner: CliRunner) -> None:
             assert "Some repositories had initialization errors" in result.stdout
 
 
-def _no_manifest_patches():
-    """Context managers to disable manifest generation in tests."""
+def _no_manifest_patches() -> Generator[None, None, None]:
+    """Context manager to disable manifest generation in tests."""
     from contextlib import contextmanager
 
     @contextmanager
-    def apply():
+    def apply() -> Generator[None, None, None]:
         with patch("timeless_py.cli.generate_brewfile", return_value=None):
             with patch("timeless_py.cli.generate_apps_manifest", return_value=None):
                 with patch("timeless_py.cli.generate_mas_manifest", return_value=None):

@@ -145,7 +145,7 @@ def find_accessible_repo(
     if not repo_paths:
         return None
 
-    last_error = None
+    last_error: Optional[Exception] = None
     for repo_path in repo_paths:
         logger.info(f"Trying repository target: {repo_path}")
         try:
@@ -172,14 +172,14 @@ def find_accessible_repo(
 
             if needs_init:
                 logger.info(
-                    f"Repository does not exist at {repo_path}, " f"initializing..."
+                    f"Repository does not exist at {repo_path}, initializing..."
                 )
                 returncode, _, stderr = engine._run_command(["init"], check=False)
                 if returncode == 0:
                     logger.info(f"Successfully initialized repository at {repo_path}")
                 else:
                     logger.warning(
-                        f"Failed to initialize repository at {repo_path}: " f"{stderr}"
+                        f"Failed to initialize repository at {repo_path}: {stderr}"
                     )
                     last_error = RuntimeError(
                         f"Failed to initialize repository: {stderr}"
@@ -470,23 +470,21 @@ def backup(
         policy = RetentionPolicy.from_file(policy_file)
     else:
         # Build retention from config values, falling back to RetentionPolicy defaults
-        kwargs = {}
         rc = config.retention
-        if rc.hourly is not None:
-            kwargs["hourly"] = rc.hourly
-        if rc.daily is not None:
-            kwargs["daily"] = rc.daily
-        if rc.weekly is not None:
-            kwargs["weekly"] = rc.weekly
-        if rc.monthly is not None:
-            kwargs["monthly"] = rc.monthly
-        if rc.yearly is not None:
-            kwargs["yearly"] = rc.yearly
-        if kwargs:
+        policy = RetentionPolicy(
+            hourly=rc.hourly if rc.hourly is not None else RetentionPolicy.hourly,
+            daily=rc.daily if rc.daily is not None else RetentionPolicy.daily,
+            weekly=rc.weekly if rc.weekly is not None else RetentionPolicy.weekly,
+            monthly=rc.monthly if rc.monthly is not None else RetentionPolicy.monthly,
+            yearly=rc.yearly if rc.yearly is not None else RetentionPolicy.yearly,
+        )
+        if any(
+            v is not None
+            for v in (rc.hourly, rc.daily, rc.weekly, rc.monthly, rc.yearly)
+        ):
             logger.info("Using retention settings from config file")
         else:
             logger.info("Using default retention policy")
-        policy = RetentionPolicy(**kwargs)
 
     # Find the first accessible repository
     result = find_accessible_repo(repo_paths, pwd, pwd_file)

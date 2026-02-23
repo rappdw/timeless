@@ -39,8 +39,6 @@ macos = [
 ]
 dev = [
     "ruff",
-    "black>=24,<26",
-    "isort",
     "mypy",
     "pytest",
     "pytest-cov",
@@ -64,15 +62,10 @@ line-length = 88
 
 [tool.ruff.lint]
 select = ["E", "F", "B", "I"]
-ignore = ["E501"]  # line length enforced by black
+ignore = ["E501"]  # line length enforced by ruff format
 
-[tool.black]
-line-length = 88
-target-version = ["py311", "py312"]
-
-[tool.isort]
-profile = "black"
-line_length = 88
+[tool.ruff.format]
+quote-style = "double"
 
 [tool.mypy]
 python_version = "3.11"
